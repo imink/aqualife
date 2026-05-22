@@ -1,0 +1,22 @@
+{
+  "name": "aqualife",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "pixi.js": "^8.18.1",
+    "zustand": "^5.0.13"
+  },
+  "devDependencies": {
+    "canvas": "^3.2.3",
+    "eslint": "^10.4.0",
+    "prettier": "^3.8.3",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.2"
+  }
+}
