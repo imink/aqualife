@@ -16,7 +16,7 @@ From the project root:
 npm run esp32:assets
 ```
 
-This converts PNG sprite sheets in `assets/` into `esp32/include/sprites.h` as RGB565 pixel data plus alpha masks.
+This converts PNG sprite sheets in `../public/assets/` into `esp32/include/sprites.h` as RGB565 pixel data plus alpha masks.
 
 In the VS Code PlatformIO panel, this is also available as the custom task:
 
@@ -58,8 +58,8 @@ Use the same project sprite rules:
 
 The converter currently includes:
 
-- `assets/whale_sheet.png`
-- `assets/hammerhead_shark_sprite.png`
+- `public/assets/whale_sheet.png`
+- `public/assets/hammerhead_shark_sprite.png`
 
 ## Runtime behavior
 

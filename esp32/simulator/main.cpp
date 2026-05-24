@@ -344,17 +344,19 @@ class Simulator {
   }
 
   void drawBatteryStatus(Framebuffer& framebuffer) {
-    constexpr int iconX = kDisplayWidth - 34;
-    constexpr int iconY = 3;
     constexpr int iconWidth = 20;
     constexpr int iconHeight = 9;
+    constexpr int capWidth = 2;
+    constexpr int rightMargin = 2;
+    constexpr int iconX = kDisplayWidth - iconWidth - capWidth - rightMargin;
+    constexpr int iconY = 3;
     const uint16_t outlineColor = rgb(210, 210, 210);
     const uint16_t lowColor = rgb(255, 82, 82);
     const uint16_t chargingColor = rgb(90, 255, 150);
     const uint16_t fillColor = charging_ ? chargingColor : batteryLevel_ <= 20 ? lowColor : rgb(120, 220, 255);
 
     framebuffer.drawRect(iconX, iconY, iconWidth, iconHeight, outlineColor);
-    framebuffer.fillRect(iconX + iconWidth, iconY + 3, 2, 3, outlineColor);
+    framebuffer.fillRect(iconX + iconWidth, iconY + 3, capWidth, 3, outlineColor);
     framebuffer.fillRect(iconX + 2, iconY + 2, (batteryLevel_ * (iconWidth - 4)) / 100, iconHeight - 4, fillColor);
 
     char label[6];

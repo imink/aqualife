@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "esp32:assets": "node tools/convert-sprites.mjs",
+    "esp32:build": "npm run esp32:assets && pio run -d esp32",
+    "esp32:upload": "npm run esp32:assets && pio run -d esp32 -t upload",
+    "esp32:monitor": "pio device monitor -d esp32"
   },
   "dependencies": {
     "pixi.js": "^8.18.1",

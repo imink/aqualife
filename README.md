@@ -28,11 +28,17 @@ src/
 │   └── StatusBar.ts
 └── app/
     └── main.ts    # Application bootstrap + game loop
+esp32/
+├── platformio.ini # PlatformIO firmware config
+├── include/
+│   └── sprites.h  # Generated RGB565 sprite data
+└── src/
+    └── main.cpp   # M5StickS3 firmware
 ```
 
 ## Device Simulation
 
-- **Display**: 135×240 internal resolution, scaled 3× to 405×720
+- **Display**: 240×135 landscape internal resolution, scaled 3× to 720×405
 - **Colors**: RGB565 quantization (simulates real LCD)
 - **Frame Rate**: Locked to 25 FPS (no requestAnimationFrame)
 - **Sprites**: 16×16 max, 8 animation frames max
@@ -61,6 +67,42 @@ Open http://localhost:3000
 ```bash
 npm run build
 ```
+
+## ESP32 / M5StickS3 firmware
+
+Generate sprite data:
+
+```bash
+npm run esp32:assets
+```
+
+Build with PlatformIO:
+
+```bash
+npm run esp32:build
+```
+
+Upload to device:
+
+```bash
+npm run esp32:upload
+```
+
+Monitor logs:
+
+```bash
+npm run esp32:monitor
+```
+
+The ESP32 version lives in `esp32/` and uses the same fish sprite rules:
+
+- 4 horizontal frames
+- each frame `32x32`
+- total `128x32`
+- transparent PNG
+- converted to RGB565 + alpha mask in `esp32/include/sprites.h`
+
+Use `public/assets/` as the single canonical sprite folder. The Web simulator loads files from there at `/assets/...`, and the ESP32 converter reads the same files to generate `esp32/include/sprites.h`.
 
 ## Constraints
 

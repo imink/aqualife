@@ -143,11 +143,12 @@ void updateBatteryStatus() {
 void drawBatteryStatus() {
   updateBatteryStatus();
 
-  constexpr int iconX = DISPLAY_WIDTH - 34;
-  constexpr int iconY = 3;
   constexpr int iconWidth = 20;
   constexpr int iconHeight = 9;
   constexpr int capWidth = 2;
+  constexpr int rightMargin = 2;
+  constexpr int iconX = DISPLAY_WIDTH - iconWidth - capWidth - rightMargin;
+  constexpr int iconY = 3;
   const uint16_t outlineColor = rgb(210, 210, 210);
   const uint16_t lowColor = rgb(255, 82, 82);
   const uint16_t chargingColor = rgb(90, 255, 150);

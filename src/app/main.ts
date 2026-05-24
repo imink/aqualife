@@ -108,6 +108,12 @@ export class App {
 
     // Try loading save
     const loaded = loadWorld(this.world);
+    if (!this.world.fish.some((fish) => fish.species === 'whale')) {
+      this.world.fish.push(createFish('whale', 120, 42));
+    }
+    if (!this.world.fish.some((fish) => fish.species === 'hammerhead')) {
+      this.world.fish.push(createFish('hammerhead', 70, 62));
+    }
     this.log(loaded ? 'Save data loaded from localStorage' : 'No save found, starting fresh');
     this.log(`Fish count: ${this.world.fish.length}`);
     for (const f of this.world.fish) {
@@ -115,11 +121,14 @@ export class App {
     }
 
     // Load sprite sheets
-    await this.display.loadSpriteSheet('clown', '/assets/fish1.jpeg', 256, 256, {
+    await this.display.loadSpriteSheet('whale', '/assets/whale_sheet.png', 32, 32, {
       frameCount: 4,
-      removeBackground: true,
     });
-    this.log('Sprite loaded: clown (4 frames, 256x256)');
+    this.log('Sprite loaded: whale (4 frames, 32x32)');
+    await this.display.loadSpriteSheet('hammerhead', '/assets/hammerhead_shark_sprite.png', 32, 32, {
+      frameCount: 4,
+    });
+    this.log('Sprite loaded: hammerhead (4 frames, 32x32)');
     this.log('---');
     this.log('Ready. Use buttons or keyboard to interact.');
 
@@ -238,12 +247,14 @@ export class App {
 
     // Draw plants
     for (const plant of this.world.plants) {
-      const angle = Math.sin(this.world.time * 0.001 * 0.03 + plant.offset) * 10;
-      const tipX = plant.x + Math.sin(angle * Math.PI / 180) * 5;
-      // Draw plant as vertical segments
+      // Keep the plant root fixed while the tip visibly sways in pixel space.
+      const sway = Math.sin(this.world.time * 0.0015 + plant.offset) * 6;
+      const tipX = plant.x + sway;
+      // Draw plant as vertical segments; round positions so the LCD-scale motion is visible.
       for (let i = 0; i < plant.height; i += 3) {
         const t = i / plant.height;
-        const px = plant.x + (tipX - plant.x) * t;
+        const bend = t * t;
+        const px = Math.round(plant.x + (tipX - plant.x) * bend);
         const py = plant.y - i;
         const green = 0x005500 + Math.floor(t * 0x44) * 0x100;
         display.drawRect(px, py, 2, 3, green);
@@ -276,7 +287,9 @@ export class App {
       if (this.display.hasSpriteSheet(fish.species)) {
         // 4 frames, cycle through based on animationFrame
         const frame = Math.floor(fish.animationFrame / 2) % 4;
-        this.display.drawSpriteFrame(fish.species, frame, x, y, 24, 20, flipX);
+        const width = fish.species === 'whale' ? 48 : fish.species === 'hammerhead' ? 34 : 24;
+        const height = fish.species === 'whale' ? 27 : fish.species === 'hammerhead' ? 18 : 20;
+        this.display.drawSpriteFrame(fish.species, frame, x, y, width, height, flipX);
       } else {
         (display as IDisplay).drawSprite(fish.species, x, y, 20, 14, flipX);
       }
