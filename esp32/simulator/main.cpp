@@ -30,8 +30,13 @@ namespace {
 
 constexpr int kDisplayWidth = 240;
 constexpr int kDisplayHeight = 135;
-constexpr int kFps = 25;
-constexpr int kFrameTimeMs = 1000 / kFps;
+constexpr int kActiveFps = 25;
+constexpr int kIdleFps = 12;
+constexpr int kActiveFrameTimeMs = 1000 / kActiveFps;
+constexpr int kIdleFrameTimeMs = 1000 / kIdleFps;
+constexpr uint32_t kActiveDisplayMs = 8000;
+constexpr uint8_t kActiveBrightness = 220;
+constexpr uint8_t kIdleBrightness = 90;
 constexpr int kAquariumTop = 12;
 constexpr int kAquariumBottom = kDisplayHeight - 20;
 constexpr int kAquariumLeft = 2;
@@ -142,9 +147,13 @@ class Simulator {
     setupPlants();
   }
 
-  void feed() { spawnFood(); }
+  void feed(uint32_t now) {
+    markInteraction(now);
+    spawnFood();
+  }
 
-  void play() {
+  void play(uint32_t now) {
+    markInteraction(now);
     std::puts("B: Play");
     for (auto& fish : fish_) {
       if (fish.visible && fish.state == Idle) {
@@ -154,7 +163,10 @@ class Simulator {
     }
   }
 
-  void shake() { scareAllFish(); }
+  void shake(uint32_t now) {
+    markInteraction(now);
+    scareAllFish();
+  }
 
   void setBatteryLevel(int level) {
     batteryLevel_ = std::clamp(level, 0, 100);
@@ -165,6 +177,30 @@ class Simulator {
   int batteryLevel() const { return batteryLevel_; }
 
   bool charging() const { return charging_; }
+
+  uint8_t brightness() const { return currentBrightness_; }
+
+  bool isActiveDisplay(uint32_t now) const { return now - lastInteractionTime_ < kActiveDisplayMs; }
+
+  int currentFrameTimeMs(uint32_t now) const {
+    return isActiveDisplay(now) ? kActiveFrameTimeMs : kIdleFrameTimeMs;
+  }
+
+  int currentFps(uint32_t now) const { return isActiveDisplay(now) ? kActiveFps : kIdleFps; }
+
+  void updateBrightness(uint32_t now) {
+    const uint8_t targetBrightness = isActiveDisplay(now) ? kActiveBrightness : kIdleBrightness;
+    if (currentBrightness_ == targetBrightness) {
+      return;
+    }
+
+    if (currentBrightness_ < targetBrightness) {
+      currentBrightness_ = targetBrightness;
+    } else {
+      constexpr uint8_t step = 2;
+      currentBrightness_ = currentBrightness_ > targetBrightness + step ? currentBrightness_ - step : targetBrightness;
+    }
+  }
 
   void update(uint16_t dt) {
     for (auto& fish : fish_) {
@@ -225,6 +261,11 @@ class Simulator {
   }
 
  private:
+  void markInteraction(uint32_t now) {
+    lastInteractionTime_ = now;
+    currentBrightness_ = kActiveBrightness;
+  }
+
   uint16_t rgb(uint8_t red, uint8_t green, uint8_t blue) const {
     return ((red & 0xf8) << 8) | ((green & 0xfc) << 3) | (blue >> 3);
   }
@@ -524,17 +565,19 @@ class Simulator {
   uint16_t bubbleSpawnTimer_ = 0;
   uint16_t nextBubbleSpawn_ = 800;
   int batteryLevel_ = 87;
+  uint32_t lastInteractionTime_ = 0;
+  uint8_t currentBrightness_ = kActiveBrightness;
   bool charging_ = false;
 };
 
-uint32_t expand565(uint16_t color) {
-  const uint8_t red = static_cast<uint8_t>(((color >> 11) & 0x1f) * 255 / 31);
-  const uint8_t green = static_cast<uint8_t>(((color >> 5) & 0x3f) * 255 / 63);
-  const uint8_t blue = static_cast<uint8_t>((color & 0x1f) * 255 / 31);
+uint32_t expand565(uint16_t color, uint8_t brightness) {
+  const uint8_t red = static_cast<uint8_t>((((color >> 11) & 0x1f) * 255 / 31) * brightness / 255);
+  const uint8_t green = static_cast<uint8_t>((((color >> 5) & 0x3f) * 255 / 63) * brightness / 255);
+  const uint8_t blue = static_cast<uint8_t>(((color & 0x1f) * 255 / 31) * brightness / 255);
   return 0xff000000u | (red << 16) | (green << 8) | blue;
 }
 
-void copyFramebufferToTexture(const Framebuffer& framebuffer, SDL_Texture* texture) {
+void copyFramebufferToTexture(const Framebuffer& framebuffer, SDL_Texture* texture, uint8_t brightness) {
   void* texturePixels = nullptr;
   int pitch = 0;
   if (SDL_LockTexture(texture, nullptr, &texturePixels, &pitch) != 0) {
@@ -546,7 +589,7 @@ void copyFramebufferToTexture(const Framebuffer& framebuffer, SDL_Texture* textu
   const auto& input = framebuffer.pixels();
   for (int y = 0; y < kDisplayHeight; ++y) {
     for (int x = 0; x < kDisplayWidth; ++x) {
-      output[y * stride + x] = expand565(input[y * kDisplayWidth + x]);
+      output[y * stride + x] = expand565(input[y * kDisplayWidth + x], brightness);
     }
   }
 
@@ -555,8 +598,10 @@ void copyFramebufferToTexture(const Framebuffer& framebuffer, SDL_Texture* textu
 
 void updateWindowTitle(SDL_Window* window, const Simulator& simulator) {
   char title[128];
-  std::snprintf(title, sizeof(title), "AquaLife Simulator - Battery %d%%%s", simulator.batteryLevel(),
-                simulator.charging() ? " charging" : "");
+  const uint32_t now = SDL_GetTicks();
+  std::snprintf(title, sizeof(title), "AquaLife Simulator - Battery %d%%%s - %d FPS - Brightness %u",
+                simulator.batteryLevel(), simulator.charging() ? " charging" : "", simulator.currentFps(now),
+                simulator.brightness());
   SDL_SetWindowTitle(window, title);
 }
 
@@ -617,11 +662,11 @@ int main() {
         if (key == SDLK_ESCAPE) {
           running = false;
         } else if (key == SDLK_a) {
-          simulator.feed();
+          simulator.feed(SDL_GetTicks());
         } else if (key == SDLK_b) {
-          simulator.play();
+          simulator.play(SDL_GetTicks());
         } else if (key == SDLK_s) {
-          simulator.shake();
+          simulator.shake(SDL_GetTicks());
         } else if (key == SDLK_c) {
           simulator.setCharging(!simulator.charging());
         } else if (key == SDLK_UP) {
@@ -636,7 +681,8 @@ int main() {
     }
 
     const uint32_t now = SDL_GetTicks();
-    if (now - lastFrame < kFrameTimeMs) {
+    simulator.updateBrightness(now);
+    if (now - lastFrame < static_cast<uint32_t>(simulator.currentFrameTimeMs(now))) {
       SDL_Delay(1);
       continue;
     }
@@ -646,7 +692,7 @@ int main() {
 
     simulator.update(dt);
     simulator.render(framebuffer);
-    copyFramebufferToTexture(framebuffer, texture);
+    copyFramebufferToTexture(framebuffer, texture, simulator.brightness());
     updateWindowTitle(window, simulator);
 
     SDL_RenderClear(renderer);

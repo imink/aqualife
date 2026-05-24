@@ -5,8 +5,14 @@
 
 constexpr int DISPLAY_WIDTH = 240;
 constexpr int DISPLAY_HEIGHT = 135;
-constexpr int FPS = 25;
-constexpr int FRAME_TIME_MS = 1000 / FPS;
+constexpr int ACTIVE_FPS = 25;
+constexpr int IDLE_FPS = 12;
+constexpr int ACTIVE_FRAME_TIME_MS = 1000 / ACTIVE_FPS;
+constexpr int IDLE_FRAME_TIME_MS = 1000 / IDLE_FPS;
+constexpr uint32_t ACTIVE_DISPLAY_MS = 8000;
+constexpr uint32_t IMU_SAMPLE_MS = 150;
+constexpr uint8_t ACTIVE_BRIGHTNESS = 220;
+constexpr uint8_t IDLE_BRIGHTNESS = 90;
 
 constexpr int AQUARIUM_TOP = 12;
 constexpr int AQUARIUM_BOTTOM = DISPLAY_HEIGHT - 20;
@@ -78,7 +84,10 @@ uint32_t worldTime = 0;
 uint16_t bubbleSpawnTimer = 0;
 uint16_t nextBubbleSpawn = 800;
 uint32_t lastBatteryRead = 0;
+uint32_t lastInteractionTime = 0;
+uint32_t lastImuRead = 0;
 int32_t batteryLevel = -1;
+uint8_t currentBrightness = ACTIVE_BRIGHTNESS;
 m5::Power_Class::is_charging_t batteryChargeState = m5::Power_Class::charge_unknown;
 
 void disableWireless() {
@@ -92,6 +101,38 @@ uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
 
 float randFloat(float min, float max) {
   return min + (static_cast<float>(esp_random() % 10000) / 10000.0f) * (max - min);
+}
+
+bool isActiveDisplay(uint32_t now) {
+  return now - lastInteractionTime < ACTIVE_DISPLAY_MS;
+}
+
+int currentFrameTimeMs(uint32_t now) {
+  return isActiveDisplay(now) ? ACTIVE_FRAME_TIME_MS : IDLE_FRAME_TIME_MS;
+}
+
+void markInteraction() {
+  lastInteractionTime = millis();
+  if (currentBrightness != ACTIVE_BRIGHTNESS) {
+    currentBrightness = ACTIVE_BRIGHTNESS;
+    M5.Display.setBrightness(currentBrightness);
+  }
+}
+
+void updateDisplayBrightness(uint32_t now) {
+  const uint8_t targetBrightness = isActiveDisplay(now) ? ACTIVE_BRIGHTNESS : IDLE_BRIGHTNESS;
+  if (currentBrightness == targetBrightness) {
+    return;
+  }
+
+  if (currentBrightness < targetBrightness) {
+    currentBrightness = targetBrightness;
+  } else {
+    constexpr uint8_t step = 2;
+    currentBrightness = currentBrightness > targetBrightness + step ? currentBrightness - step : targetBrightness;
+  }
+
+  M5.Display.setBrightness(currentBrightness);
 }
 
 void drawSpriteMasked(const SpriteSheet& sheet, uint8_t frame, int x, int y, int w, int h, bool flipX) {
@@ -324,9 +365,11 @@ void updateControls() {
   M5.update();
 
   if (M5.BtnA.wasPressed()) {
+    markInteraction();
     spawnFood();
   }
   if (M5.BtnB.wasPressed()) {
+    markInteraction();
     Serial.println("BTN_B: Play");
     for (auto& f : fish) {
       if (f.visible && f.state == Idle) {
@@ -336,9 +379,16 @@ void updateControls() {
     }
   }
 
+  const uint32_t now = millis();
+  if (now - lastImuRead < IMU_SAMPLE_MS) {
+    return;
+  }
+  lastImuRead = now;
+
   auto imu = M5.Imu.getImuData();
   const float shake = fabs(imu.accel.x) + fabs(imu.accel.y) + fabs(imu.accel.z - 1.0f);
   if (shake > 2.8f) {
+    markInteraction();
     scareAllFish();
   }
 }
@@ -425,6 +475,7 @@ void setup() {
   M5.Display.setRotation(1);
   M5.Display.setColorDepth(16);
   M5.Display.setTextFont(1);
+  M5.Display.setBrightness(currentBrightness);
   M5.Display.fillScreen(TFT_BLACK);
 
   framebuffer.setColorDepth(16);
@@ -438,15 +489,19 @@ void setup() {
 
   setupPlants();
   lastFrame = millis();
+  lastInteractionTime = lastFrame;
+  lastImuRead = lastFrame;
 
   Serial.println("AquaLife ESP32 firmware");
   Serial.println("Display: 240x135 landscape");
-  Serial.println("FPS: 25 locked");
+  Serial.println("FPS: 25 active / 12 idle");
 }
 
 void loop() {
   const uint32_t now = millis();
-  if (now - lastFrame < FRAME_TIME_MS) {
+  updateDisplayBrightness(now);
+
+  if (now - lastFrame < static_cast<uint32_t>(currentFrameTimeMs(now))) {
     delay(1);
     return;
   }
