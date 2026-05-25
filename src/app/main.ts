@@ -9,7 +9,7 @@ import { updateBubbleSystem } from '../systems/BubbleSystem';
 import { updateSaveSystem, loadWorld, saveWorld } from '../systems/SaveSystem';
 import { drawBatteryBar } from '../ui/BatteryBar';
 import { drawHungerBar } from '../ui/HungerBar';
-import { drawStatusBar, drawMoodIndicator, drawButtonHints } from '../ui/StatusBar';
+import { drawStatusBar, drawMoodIndicator } from '../ui/StatusBar';
 import { IDisplay } from '../platform/interfaces/Display';
 import { createFish } from '../core/Fish';
 
@@ -212,6 +212,12 @@ export class App {
       alive: true,
     };
     this.world.food.push(food);
+    for (const fish of this.world.fish) {
+      const state = fish.stateMachine.getState();
+      if (fish.visible && state !== 'Scared' && state !== 'Hidden') {
+        fish.stateMachine.force('SeekFood');
+      }
+    }
     this.audioSystem.playFeed();
   }
 
@@ -316,7 +322,6 @@ export class App {
     const uiY = AQUARIUM_BOTTOM + 4;
     drawHungerBar(display, avgHunger, 5, uiY);
     drawMoodIndicator(display, avgHappy, 100, uiY);
-    drawButtonHints(display, DISPLAY_HEIGHT - 10);
 
     display.present();
   }

@@ -52,8 +52,8 @@ function think(fish: Fish, world: World, accelX: number): void {
         fish.vx = (Math.random() - 0.5) * MAX_SPEED;
         fish.vy = (Math.random() - 0.5) * MAX_SPEED * 0.5;
       }
-      // Seek food if hungry
-      if (fish.hunger < 50 && world.food.length > 0) {
+      // Feeding draws fish in immediately, even if they are not very hungry.
+      if (hasLiveFood(world)) {
         fish.stateMachine.transition('SeekFood');
       }
       // Sleep if low energy
@@ -68,7 +68,7 @@ function think(fish: Fish, world: World, accelX: number): void {
 
     case 'SeekFood':
       seekFood(fish, world);
-      if (world.food.length === 0 || fish.hunger > 80) {
+      if (!hasLiveFood(world)) {
         fish.stateMachine.transition('Idle');
       }
       break;
@@ -146,8 +146,6 @@ function seekFood(fish: Fish, world: World): void {
     const dx = nearest.x - fish.x;
     const dy = nearest.y - fish.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    fish.vx = (dx / dist) * MAX_SPEED;
-    fish.vy = (dy / dist) * MAX_SPEED;
 
     // Eat food if close enough
     if (dist < 8) {
@@ -155,8 +153,20 @@ function seekFood(fish: Fish, world: World): void {
       fish.hunger = Math.min(100, fish.hunger + 25);
       fish.happiness = Math.min(100, fish.happiness + 10);
       fish.friendship = Math.min(100, fish.friendship + 3);
+      fish.vx *= 0.4;
+      fish.vy *= 0.4;
+      return;
+    }
+
+    if (dist > 0) {
+      fish.vx = (dx / dist) * MAX_SPEED;
+      fish.vy = (dy / dist) * MAX_SPEED;
     }
   }
+}
+
+function hasLiveFood(world: World): boolean {
+  return world.food.some(food => food.alive);
 }
 
 function updateMovement(fish: Fish, dt: number): void {
