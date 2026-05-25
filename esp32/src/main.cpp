@@ -11,8 +11,12 @@ constexpr int ACTIVE_FRAME_TIME_MS = 1000 / ACTIVE_FPS;
 constexpr int IDLE_FRAME_TIME_MS = 1000 / IDLE_FPS;
 constexpr uint32_t ACTIVE_DISPLAY_MS = 8000;
 constexpr uint32_t IMU_SAMPLE_MS = 150;
+constexpr uint32_t SHAKE_SCARE_MS = 300;
+constexpr float SHAKE_THRESHOLD = 2.8f;
 constexpr uint8_t ACTIVE_BRIGHTNESS = 220;
-constexpr uint8_t IDLE_BRIGHTNESS = 38;
+constexpr uint8_t IDLE_BRIGHTNESS = 3;
+constexpr bool LOGS_ENABLED = true;
+constexpr bool IMU_DEBUG_ENABLED = false;
 
 constexpr int AQUARIUM_TOP = 12;
 constexpr int AQUARIUM_BOTTOM = DISPLAY_HEIGHT - 20;
@@ -44,6 +48,8 @@ struct Fish {
   bool visible;
   uint16_t drawWidth;
   uint16_t drawHeight;
+  float hunger;
+  float happiness;
 };
 
 struct Bubble {
@@ -69,9 +75,9 @@ struct Plant {
 };
 
 Fish fish[] = {
-  { &clownfish_sheet, "clownfish", 35, 48, 0.45f, 0.0f, 1, 0, 0, 0, 0, Idle, true, 24, 16 },
-  { &whale_sheet, "whale", 120, 42, 0.3f, 0.0f, 1, 0, 0, 0, 0, Idle, true, 48, 27 },
-  { &hammerhead_sheet, "hammerhead", 78, 62, 0.4f, 0.0f, 1, 0, 0, 0, 0, Idle, true, 36, 20 },
+  { &clownfish_sheet, "clownfish", 35, 48, 0.45f, 0.0f, 1, 0, 0, 0, 0, Idle, true, 24, 16, 80.0f, 70.0f },
+  { &whale_sheet, "whale", 120, 42, 0.3f, 0.0f, 1, 0, 0, 0, 0, Idle, true, 48, 27, 80.0f, 70.0f },
+  { &hammerhead_sheet, "hammerhead", 78, 62, 0.4f, 0.0f, 1, 0, 0, 0, 0, Idle, true, 36, 20, 80.0f, 70.0f },
 };
 
 constexpr int FISH_COUNT = sizeof(fish) / sizeof(fish[0]);
@@ -87,8 +93,18 @@ uint16_t nextBubbleSpawn = 800;
 uint32_t lastBatteryRead = 0;
 uint32_t lastInteractionTime = 0;
 uint32_t lastImuRead = 0;
+uint32_t lastImuDebugLog = 0;
+uint32_t shakeStartedAt = 0;
 int32_t batteryLevel = -1;
 uint8_t currentBrightness = ACTIVE_BRIGHTNESS;
+bool displayActive = true;
+bool imuEnabled = false;
+bool imuUpdated = false;
+float imuAccelX = 0.0f;
+float imuAccelY = 0.0f;
+float imuAccelZ = 0.0f;
+float imuShakeStrength = 0.0f;
+uint32_t shakeDuration = 0;
 m5::Power_Class::is_charging_t batteryChargeState = m5::Power_Class::charge_unknown;
 
 void disableWireless() {
@@ -104,6 +120,20 @@ float randFloat(float min, float max) {
   return min + (static_cast<float>(esp_random() % 10000) / 10000.0f) * (max - min);
 }
 
+#define LOG_PRINTLN(message) \
+  do { \
+    if (LOGS_ENABLED) { \
+      Serial.println(message); \
+    } \
+  } while (false)
+
+#define LOG_PRINTF(...) \
+  do { \
+    if (LOGS_ENABLED) { \
+      Serial.printf(__VA_ARGS__); \
+    } \
+  } while (false)
+
 bool isActiveDisplay(uint32_t now) {
   return now - lastInteractionTime < ACTIVE_DISPLAY_MS;
 }
@@ -114,6 +144,10 @@ int currentFrameTimeMs(uint32_t now) {
 
 void markInteraction() {
   lastInteractionTime = millis();
+  if (!displayActive) {
+    displayActive = true;
+    LOG_PRINTF("Display active lightness: %u -> %u\n", M5.Display.getBrightness(), ACTIVE_BRIGHTNESS);
+  }
   if (currentBrightness != ACTIVE_BRIGHTNESS) {
     currentBrightness = ACTIVE_BRIGHTNESS;
     M5.Display.setBrightness(currentBrightness);
@@ -121,7 +155,14 @@ void markInteraction() {
 }
 
 void updateDisplayBrightness(uint32_t now) {
-  const uint8_t targetBrightness = isActiveDisplay(now) ? ACTIVE_BRIGHTNESS : IDLE_BRIGHTNESS;
+  const bool active = isActiveDisplay(now);
+  if (displayActive != active) {
+    displayActive = active;
+    LOG_PRINTF("Display %s lightness: %u -> %u\n", active ? "active" : "inactive", M5.Display.getBrightness(),
+               active ? ACTIVE_BRIGHTNESS : IDLE_BRIGHTNESS);
+  }
+
+  const uint8_t targetBrightness = active ? ACTIVE_BRIGHTNESS : IDLE_BRIGHTNESS;
   if (currentBrightness == targetBrightness) {
     return;
   }
@@ -220,14 +261,68 @@ void spawnFood() {
       item.y = AQUARIUM_TOP + 4;
       item.vy = 0.3f;
       item.alive = true;
-      Serial.println("BTN_A: Feed");
+      for (auto& f : fish) {
+        if (f.visible && f.state != Scared && f.state != Hidden) {
+          f.state = SeekFood;
+          f.thinkTimer = 0;
+        }
+      }
+      LOG_PRINTLN("BTN_A: Feed");
       return;
     }
   }
 }
 
+bool hasLiveFood() {
+  for (const auto& item : food) {
+    if (item.alive) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void seekFood(Fish& f) {
+  Food* nearest = nullptr;
+  float minDistSq = 1000000.0f;
+
+  for (auto& item : food) {
+    if (!item.alive) {
+      continue;
+    }
+    const float dx = item.x - f.x;
+    const float dy = item.y - f.y;
+    const float distSq = dx * dx + dy * dy;
+    if (distSq < minDistSq) {
+      minDistSq = distSq;
+      nearest = &item;
+    }
+  }
+
+  if (nearest == nullptr) {
+    return;
+  }
+
+  const float dx = nearest->x - f.x;
+  const float dy = nearest->y - f.y;
+  const float dist = sqrtf(dx * dx + dy * dy);
+  if (dist < 8.0f) {
+    nearest->alive = false;
+    f.hunger = min(100.0f, f.hunger + 25.0f);
+    f.happiness = min(100.0f, f.happiness + 10.0f);
+    f.vx *= 0.4f;
+    f.vy *= 0.4f;
+    return;
+  }
+
+  if (dist > 0.0f) {
+    f.vx = (dx / dist) * 1.0f;
+    f.vy = (dy / dist) * 1.0f;
+  }
+}
+
 void scareAllFish() {
-  Serial.println("IMU: Shake detected - fish scared");
+  LOG_PRINTLN("IMU: Shake detected - fish scared");
   for (auto& f : fish) {
     if (!f.visible) {
       continue;
@@ -235,6 +330,7 @@ void scareAllFish() {
     f.state = Scared;
     f.thinkTimer = 0;
     f.direction = randFloat(0, 1) > 0.5f ? 1 : -1;
+    LOG_PRINTF("%s scared\n", f.name);
   }
 }
 
@@ -250,6 +346,9 @@ void updateFish(Fish& f, uint16_t dt) {
           f.vx = randFloat(-0.5f, 0.5f);
           f.vy = randFloat(-0.2f, 0.2f);
         }
+        if (hasLiveFood()) {
+          f.state = SeekFood;
+        }
         break;
 
       case Scared:
@@ -258,6 +357,7 @@ void updateFish(Fish& f, uint16_t dt) {
         f.state = Hidden;
         f.visible = false;
         f.hideTimer = 3000 + static_cast<uint16_t>(esp_random() % 3000);
+        LOG_PRINTF("%s hidden for %u ms\n", f.name, f.hideTimer);
         break;
 
       case Hidden:
@@ -272,12 +372,17 @@ void updateFish(Fish& f, uint16_t dt) {
           f.vy = 0.0f;
           f.visible = true;
           f.state = Idle;
-          Serial.printf("%s returned\\n", f.name);
+          LOG_PRINTF("%s returned\\n", f.name);
         }
         break;
 
-      case Play:
       case SeekFood:
+        seekFood(f);
+        if (!hasLiveFood()) {
+          f.state = Idle;
+        }
+        break;
+      case Play:
       case Sleep:
         f.state = Idle;
         break;
@@ -287,6 +392,9 @@ void updateFish(Fish& f, uint16_t dt) {
   if (!f.visible) {
     return;
   }
+
+  f.hunger = max(0.0f, f.hunger - 0.001f * dt);
+  f.happiness = max(0.0f, f.happiness - 0.0005f * dt);
 
   f.x += f.vx * (dt / 40.0f);
   f.y += f.vy * (dt / 40.0f);
@@ -362,6 +470,31 @@ void updateFood(uint16_t dt) {
   }
 }
 
+void drawHungerBar(float hunger) {
+  constexpr int x = 5;
+  constexpr int y = AQUARIUM_BOTTOM + 4;
+  drawPixelText("HGR", x, y, rgb(170, 170, 170));
+  framebuffer.fillRect(x + 20, y, 40, 5, rgb(51, 51, 51));
+  const int fillWidth = static_cast<int>((hunger / 100.0f) * 38.0f);
+  const uint16_t color = hunger > 50.0f ? rgb(0, 204, 0) : hunger > 25.0f ? rgb(204, 204, 0) : rgb(204, 0, 0);
+  framebuffer.fillRect(x + 21, y + 1, fillWidth, 3, color);
+}
+
+void drawImuDebug() {
+  if (!IMU_DEBUG_ENABLED) {
+    return;
+  }
+
+  char status[48];
+  snprintf(status, sizeof(status), "IMU %s %s", imuEnabled ? "ON" : "OFF", imuUpdated ? "UPD" : "WAIT");
+  drawPixelText(status, 4, 13, imuEnabled ? rgb(90, 255, 150) : rgb(255, 82, 82));
+
+  char values[64];
+  snprintf(values, sizeof(values), "A %.1f %.1f %.1f S %.1f T %lu", imuAccelX, imuAccelY, imuAccelZ, imuShakeStrength,
+           static_cast<unsigned long>(shakeDuration / 1000));
+  drawPixelText(values, 4, 22, rgb(210, 210, 210));
+}
+
 void updateControls() {
   M5.update();
 
@@ -371,7 +504,7 @@ void updateControls() {
   }
   if (M5.BtnB.wasPressed()) {
     markInteraction();
-    Serial.println("BTN_B: Play");
+    LOG_PRINTLN("BTN_B: Play");
     for (auto& f : fish) {
       if (f.visible && f.state == Idle) {
         f.state = Play;
@@ -386,11 +519,39 @@ void updateControls() {
   }
   lastImuRead = now;
 
-  auto imu = M5.Imu.getImuData();
-  const float shake = fabs(imu.accel.x) + fabs(imu.accel.y) + fabs(imu.accel.z - 1.0f);
-  if (shake > 2.8f) {
-    markInteraction();
-    scareAllFish();
+  imuEnabled = M5.Imu.isEnabled();
+  imuUpdated = M5.Imu.update() != 0;
+  if (imuUpdated) {
+    auto imu = M5.Imu.getImuData();
+    imuAccelX = imu.accel.x;
+    imuAccelY = imu.accel.y;
+    imuAccelZ = imu.accel.z;
+    imuShakeStrength = fabs(imuAccelX) + fabs(imuAccelY) + fabs(imuAccelZ - 1.0f);
+  }
+
+  if (IMU_DEBUG_ENABLED && now - lastImuDebugLog >= 1000) {
+    lastImuDebugLog = now;
+    LOG_PRINTF("IMU enabled=%d updated=%d accel=(%.2f, %.2f, %.2f) shake=%.2f duration=%lu ms\n", imuEnabled,
+               imuUpdated, imuAccelX, imuAccelY, imuAccelZ, imuShakeStrength, static_cast<unsigned long>(shakeDuration));
+  }
+
+  if (imuUpdated && imuShakeStrength > SHAKE_THRESHOLD) {
+    if (shakeStartedAt == 0) {
+      shakeStartedAt = now;
+      LOG_PRINTF("IMU shake started: %.2f\n", imuShakeStrength);
+    }
+    shakeDuration = now - shakeStartedAt;
+  } else {
+    if (shakeDuration > 0) {
+      LOG_PRINTF("IMU shake stopped after %lu ms\n", static_cast<unsigned long>(shakeDuration));
+      if (shakeDuration > SHAKE_SCARE_MS) {
+        LOG_PRINTF("IMU shake duration accepted: %lu ms\n", static_cast<unsigned long>(shakeDuration));
+        markInteraction();
+        scareAllFish();
+      }
+    }
+    shakeStartedAt = 0;
+    shakeDuration = 0;
   }
 }
 
@@ -446,9 +607,13 @@ void renderWorld() {
     drawSpriteMasked(*f.sheet, frame, static_cast<int>(f.x), static_cast<int>(f.y), f.drawWidth, f.drawHeight, f.direction < 0);
   }
 
-  drawPixelText("A FEED", 5, DISPLAY_HEIGHT - 10, rgb(110, 110, 150));
-  drawPixelText("B PLAY", DISPLAY_WIDTH - 46, DISPLAY_HEIGHT - 10, rgb(110, 110, 150));
+  float avgHunger = 0.0f;
+  for (const auto& f : fish) {
+    avgHunger += f.hunger;
+  }
+  drawHungerBar(avgHunger / FISH_COUNT);
   drawPixelText("AquaLife", 4, 3, rgb(210, 210, 210));
+  drawImuDebug();
   drawBatteryStatus();
 
   framebuffer.pushSprite(0, 0);
@@ -472,6 +637,10 @@ void setup() {
   M5.begin(cfg);
 
   Serial.begin(115200);
+  const uint32_t serialStart = millis();
+  while (!Serial && millis() - serialStart < 2000) {
+    delay(10);
+  }
 
   M5.Display.setRotation(1);
   M5.Display.setColorDepth(16);
@@ -481,7 +650,7 @@ void setup() {
 
   framebuffer.setColorDepth(16);
   if (!framebuffer.createSprite(DISPLAY_WIDTH, DISPLAY_HEIGHT)) {
-    Serial.println("Failed to allocate framebuffer");
+    LOG_PRINTLN("Failed to allocate framebuffer");
     while (true) {
       delay(1000);
     }
@@ -493,9 +662,9 @@ void setup() {
   lastInteractionTime = lastFrame;
   lastImuRead = lastFrame;
 
-  Serial.println("AquaLife ESP32 firmware");
-  Serial.println("Display: 240x135 landscape");
-  Serial.println("FPS: 25 active / 12 idle");
+  LOG_PRINTLN("AquaLife ESP32 firmware");
+  LOG_PRINTLN("Display: 240x135 landscape");
+  LOG_PRINTLN("FPS: 25 active / 12 idle");
 }
 
 void loop() {

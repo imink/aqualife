@@ -36,7 +36,7 @@ constexpr int kActiveFrameTimeMs = 1000 / kActiveFps;
 constexpr int kIdleFrameTimeMs = 1000 / kIdleFps;
 constexpr uint32_t kActiveDisplayMs = 8000;
 constexpr uint8_t kActiveBrightness = 220;
-constexpr uint8_t kIdleBrightness = 38;
+constexpr uint8_t kIdleBrightness = 3;
 constexpr int kAquariumTop = 12;
 constexpr int kAquariumBottom = kDisplayHeight - 20;
 constexpr int kAquariumLeft = 2;
@@ -67,6 +67,8 @@ struct Fish {
   bool visible;
   uint16_t drawWidth;
   uint16_t drawHeight;
+  float hunger;
+  float happiness;
 };
 
 struct Bubble {
@@ -141,9 +143,9 @@ class Simulator {
  public:
   Simulator() {
     fish_ = {{
-      { &clownfish_sheet, "clownfish", 35, 48, 0.45f, 0.0f, 1, 0, 0, 0, 0, Idle, true, 24, 16 },
-      { &whale_sheet, "whale", 120, 42, 0.3f, 0.0f, 1, 0, 0, 0, 0, Idle, true, 48, 27 },
-      { &hammerhead_sheet, "hammerhead", 78, 62, 0.4f, 0.0f, 1, 0, 0, 0, 0, Idle, true, 36, 20 },
+      { &clownfish_sheet, "clownfish", 35, 48, 0.45f, 0.0f, 1, 0, 0, 0, 0, Idle, true, 24, 16, 80.0f, 70.0f },
+      { &whale_sheet, "whale", 120, 42, 0.3f, 0.0f, 1, 0, 0, 0, 0, Idle, true, 48, 27, 80.0f, 70.0f },
+      { &hammerhead_sheet, "hammerhead", 78, 62, 0.4f, 0.0f, 1, 0, 0, 0, 0, Idle, true, 36, 20, 80.0f, 70.0f },
     }};
     setupPlants();
   }
@@ -190,7 +192,14 @@ class Simulator {
   int currentFps(uint32_t now) const { return isActiveDisplay(now) ? kActiveFps : kIdleFps; }
 
   void updateBrightness(uint32_t now) {
-    const uint8_t targetBrightness = isActiveDisplay(now) ? kActiveBrightness : kIdleBrightness;
+    const bool active = isActiveDisplay(now);
+    if (displayActive_ != active) {
+      displayActive_ = active;
+      std::printf("Display %s lightness: %u -> %u\n", active ? "active" : "inactive", currentBrightness_,
+                  active ? kActiveBrightness : kIdleBrightness);
+    }
+
+    const uint8_t targetBrightness = active ? kActiveBrightness : kIdleBrightness;
     if (currentBrightness_ == targetBrightness) {
       return;
     }
@@ -255,8 +264,11 @@ class Simulator {
                        fish.drawWidth, fish.drawHeight, fish.direction < 0);
     }
 
-    drawText(framebuffer, "A FEED", 5, kDisplayHeight - 10, rgb(110, 110, 150));
-    drawText(framebuffer, "B PLAY", kDisplayWidth - 46, kDisplayHeight - 10, rgb(110, 110, 150));
+    float avgHunger = 0.0f;
+    for (const auto& fish : fish_) {
+      avgHunger += fish.hunger;
+    }
+    drawHungerBar(framebuffer, avgHunger / fish_.size());
     drawText(framebuffer, "AquaLife", 4, 3, rgb(210, 210, 210));
     drawBatteryStatus(framebuffer);
   }
@@ -264,6 +276,10 @@ class Simulator {
  private:
   void markInteraction(uint32_t now) {
     lastInteractionTime_ = now;
+    if (!displayActive_) {
+      displayActive_ = true;
+      std::printf("Display active lightness: %u -> %u\n", currentBrightness_, kActiveBrightness);
+    }
     currentBrightness_ = kActiveBrightness;
   }
 
@@ -413,9 +429,63 @@ class Simulator {
         item.y = kAquariumTop + 4;
         item.vy = 0.3f;
         item.alive = true;
+        for (auto& fish : fish_) {
+          if (fish.visible && fish.state != Scared && fish.state != Hidden) {
+            fish.state = SeekFood;
+            fish.thinkTimer = 0;
+          }
+        }
         std::puts("A: Feed");
         return;
       }
+    }
+  }
+
+  bool hasLiveFood() const {
+    for (const auto& item : food_) {
+      if (item.alive) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void seekFood(Fish& fish) {
+    Food* nearest = nullptr;
+    float minDistSq = 1000000.0f;
+
+    for (auto& item : food_) {
+      if (!item.alive) {
+        continue;
+      }
+      const float dx = item.x - fish.x;
+      const float dy = item.y - fish.y;
+      const float distSq = dx * dx + dy * dy;
+      if (distSq < minDistSq) {
+        minDistSq = distSq;
+        nearest = &item;
+      }
+    }
+
+    if (nearest == nullptr) {
+      return;
+    }
+
+    const float dx = nearest->x - fish.x;
+    const float dy = nearest->y - fish.y;
+    const float dist = std::sqrt(dx * dx + dy * dy);
+    if (dist < 8.0f) {
+      nearest->alive = false;
+      fish.hunger = std::min(100.0f, fish.hunger + 25.0f);
+      fish.happiness = std::min(100.0f, fish.happiness + 10.0f);
+      fish.vx *= 0.4f;
+      fish.vy *= 0.4f;
+      return;
+    }
+
+    if (dist > 0.0f) {
+      fish.vx = (dx / dist) * 1.0f;
+      fish.vy = (dy / dist) * 1.0f;
     }
   }
 
@@ -442,6 +512,9 @@ class Simulator {
             fish.vx = randomFloat(-0.5f, 0.5f);
             fish.vy = randomFloat(-0.2f, 0.2f);
           }
+          if (hasLiveFood()) {
+            fish.state = SeekFood;
+          }
           break;
         case Scared:
           fish.vx = fish.direction * 3.5f;
@@ -465,8 +538,13 @@ class Simulator {
             std::printf("%s returned\n", fish.name);
           }
           break;
-        case Play:
         case SeekFood:
+          seekFood(fish);
+          if (!hasLiveFood()) {
+            fish.state = Idle;
+          }
+          break;
+        case Play:
         case Sleep:
           fish.state = Idle;
           break;
@@ -476,6 +554,9 @@ class Simulator {
     if (!fish.visible) {
       return;
     }
+
+    fish.hunger = std::max(0.0f, fish.hunger - 0.001f * dt);
+    fish.happiness = std::max(0.0f, fish.happiness - 0.0005f * dt);
 
     fish.x += fish.vx * (dt / 40.0f);
     fish.y += fish.vy * (dt / 40.0f);
@@ -551,6 +632,16 @@ class Simulator {
     }
   }
 
+  void drawHungerBar(Framebuffer& framebuffer, float hunger) {
+    constexpr int x = 5;
+    constexpr int y = kAquariumBottom + 4;
+    drawText(framebuffer, "HGR", x, y, rgb(170, 170, 170));
+    framebuffer.fillRect(x + 20, y, 40, 5, rgb(51, 51, 51));
+    const int fillWidth = static_cast<int>((hunger / 100.0f) * 38.0f);
+    const uint16_t color = hunger > 50.0f ? rgb(0, 204, 0) : hunger > 25.0f ? rgb(204, 204, 0) : rgb(204, 0, 0);
+    framebuffer.fillRect(x + 21, y + 1, fillWidth, 3, color);
+  }
+
   void setupPlants() {
     for (int i = 0; i < 5; ++i) {
       plants_[i] = {15 + i * 55, kAquariumBottom, randomFloat(0, 6.28318f), static_cast<int>(12 + randomInt(16))};
@@ -568,6 +659,7 @@ class Simulator {
   int batteryLevel_ = 87;
   uint32_t lastInteractionTime_ = 0;
   uint8_t currentBrightness_ = kActiveBrightness;
+  bool displayActive_ = true;
   bool charging_ = false;
 };
 
