@@ -12,7 +12,7 @@ constexpr int IDLE_FRAME_TIME_MS = 1000 / IDLE_FPS;
 constexpr uint32_t ACTIVE_DISPLAY_MS = 8000;
 constexpr uint32_t IMU_SAMPLE_MS = 150;
 constexpr uint8_t ACTIVE_BRIGHTNESS = 220;
-constexpr uint8_t IDLE_BRIGHTNESS = 90;
+constexpr uint8_t IDLE_BRIGHTNESS = 38;
 
 constexpr int AQUARIUM_TOP = 12;
 constexpr int AQUARIUM_BOTTOM = DISPLAY_HEIGHT - 20;
