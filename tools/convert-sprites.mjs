@@ -8,6 +8,13 @@ const root = resolve(__dirname, '..');
 
 const sprites = [
   {
+    id: 'clownfish',
+    path: resolve(root, 'public/assets/clownfish_sprite_sheet.png'),
+    frameWidth: 32,
+    frameHeight: 32,
+    frames: 4,
+  },
+  {
     id: 'whale',
     path: resolve(root, 'public/assets/whale_sheet.png'),
     frameWidth: 32,

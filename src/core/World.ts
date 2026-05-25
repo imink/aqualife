@@ -47,8 +47,9 @@ export function createWorld(): World {
   };
 
   // Add initial fish
+  world.fish.push(createFish('clownfish', 35, 48));
+  world.fish.push(createFish('hammerhead', 78, 62));
   world.fish.push(createFish('whale', 120, 42));
-  world.fish.push(createFish('hammerhead', 70, 62));
   world.fish.push(createFish('blue', 150, 60));
   world.fish.push(createFish('gold', 50, 75));
 

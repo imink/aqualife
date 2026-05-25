@@ -69,8 +69,9 @@ struct Plant {
 };
 
 Fish fish[] = {
+  { &clownfish_sheet, "clownfish", 35, 48, 0.45f, 0.0f, 1, 0, 0, 0, 0, Idle, true, 24, 16 },
   { &whale_sheet, "whale", 120, 42, 0.3f, 0.0f, 1, 0, 0, 0, 0, Idle, true, 48, 27 },
-  { &hammerhead_sheet, "hammerhead", 70, 62, 0.4f, 0.0f, 1, 0, 0, 0, 0, Idle, true, 34, 18 },
+  { &hammerhead_sheet, "hammerhead", 78, 62, 0.4f, 0.0f, 1, 0, 0, 0, 0, Idle, true, 36, 20 },
 };
 
 constexpr int FISH_COUNT = sizeof(fish) / sizeof(fish[0]);

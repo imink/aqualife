@@ -108,6 +108,9 @@ export class App {
 
     // Try loading save
     const loaded = loadWorld(this.world);
+    if (!this.world.fish.some((fish) => fish.species === 'clownfish')) {
+      this.world.fish.push(createFish('clownfish', 35, 48));
+    }
     if (!this.world.fish.some((fish) => fish.species === 'whale')) {
       this.world.fish.push(createFish('whale', 120, 42));
     }
@@ -121,11 +124,16 @@ export class App {
     }
 
     // Load sprite sheets
-    await this.display.loadSpriteSheet('whale', '/assets/whale_sheet.png', 32, 32, {
+    const assetBase = import.meta.env.BASE_URL;
+    await this.display.loadSpriteSheet('clownfish', `${assetBase}assets/clownfish_sprite_sheet.png`, 32, 32, {
+      frameCount: 4,
+    });
+    this.log('Sprite loaded: clownfish (4 frames, 32x32)');
+    await this.display.loadSpriteSheet('whale', `${assetBase}assets/whale_sheet.png`, 32, 32, {
       frameCount: 4,
     });
     this.log('Sprite loaded: whale (4 frames, 32x32)');
-    await this.display.loadSpriteSheet('hammerhead', '/assets/hammerhead_shark_sprite.png', 32, 32, {
+    await this.display.loadSpriteSheet('hammerhead', `${assetBase}assets/hammerhead_shark_sprite.png`, 32, 32, {
       frameCount: 4,
     });
     this.log('Sprite loaded: hammerhead (4 frames, 32x32)');
@@ -287,8 +295,8 @@ export class App {
       if (this.display.hasSpriteSheet(fish.species)) {
         // 4 frames, cycle through based on animationFrame
         const frame = Math.floor(fish.animationFrame / 2) % 4;
-        const width = fish.species === 'whale' ? 48 : fish.species === 'hammerhead' ? 34 : 24;
-        const height = fish.species === 'whale' ? 27 : fish.species === 'hammerhead' ? 18 : 20;
+        const width = fish.species === 'whale' ? 48 : fish.species === 'hammerhead' ? 36 : 24;
+        const height = fish.species === 'whale' ? 27 : fish.species === 'hammerhead' ? 20 : 16;
         this.display.drawSpriteFrame(fish.species, frame, x, y, width, height, flipX);
       } else {
         (display as IDisplay).drawSprite(fish.species, x, y, 20, 14, flipX);

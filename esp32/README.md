@@ -58,6 +58,7 @@ Use the same project sprite rules:
 
 The converter currently includes:
 
+- `public/assets/clownfish_sprite_sheet.png`
 - `public/assets/whale_sheet.png`
 - `public/assets/hammerhead_shark_sprite.png`
 
