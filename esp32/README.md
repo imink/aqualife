@@ -2,11 +2,63 @@
 
 This folder contains the hardware firmware version of the AquaLife aquarium.
 
+For Chinese documentation, see [README.zh-CN.md](README.zh-CN.md).
+
 ## Requirements
 
 - M5StickS3 / ESP32-S3 device
 - PlatformIO
 - USB cable
+
+## Install firmware
+
+These steps are for players who want to install AquaLife on a M5StickS3.
+
+1. Install [Visual Studio Code](https://code.visualstudio.com/) and the PlatformIO extension.
+2. Connect the M5StickS3 to your computer with a USB cable.
+3. Open this repository in VS Code.
+4. Open the PlatformIO panel.
+5. Select `m5sticks3 > General > Upload` to flash the firmware.
+6. Select `m5sticks3 > General > Upload and Monitor` if you also want to watch serial logs after flashing.
+
+If the upload port changes after flashing, unplug and reconnect the device, then run `Upload and Monitor` again.
+
+## Download firmware artifacts
+
+Every push to `main` builds the M5StickS3 firmware in GitHub Actions and publishes a downloadable artifact.
+
+1. Open the repository on GitHub.
+2. Select the `Actions` tab.
+3. Open the latest successful `ESP32 Firmware` workflow run.
+4. Download the `aqualife-m5sticks3-firmware-<commit>` artifact.
+
+The artifact contains:
+
+- `firmware.bin`
+- `firmware.elf`
+- `bootloader.bin`
+- `partitions.bin`
+- `build_info.h`
+
+Use PlatformIO or another ESP32 flashing tool to install the downloaded binaries.
+
+## Play
+
+- Button A: feed the fish.
+- Button B: play with the fish.
+- Shake the device briefly: scare the fish; they hide for a few seconds, then return.
+- After several seconds without interaction, the display dims to save power.
+
+The aquarium keeps core fish status in device storage, so hunger and happiness survive a restart. Temporary states such as scared or hidden are not restored after reboot.
+
+## Firmware info
+
+The firmware prints its version, git commit, and UTC build time at boot, for example:
+
+```txt
+AquaLife ESP32 firmware v1.0.0 (abc1234)
+Build time: 2026-05-27T00:00:00Z
+```
 
 ## Build assets
 
@@ -25,6 +77,8 @@ m5sticks3 > Custom > Build Assets
 ```
 
 `Build` and `Upload` also run asset conversion automatically before compiling/uploading.
+
+GitHub Actions also runs the firmware build automatically and uploads the firmware binaries as workflow artifacts.
 
 ## Build firmware
 
@@ -73,4 +127,5 @@ The converter currently includes:
 - Button A: feed
 - Button B: play
 - Shake: fish dart away, hide, then return one by one
+- State persistence: fish hunger and happiness are saved to NVS on key events
 - Rendering: RGB565
