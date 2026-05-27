@@ -23,22 +23,23 @@ These steps are for players who want to install AquaLife on a M5StickS3.
 
 If the upload port changes after flashing, unplug and reconnect the device, then run `Upload and Monitor` again.
 
-## Download firmware artifacts
+## Download firmware releases
 
-Every push to `main` builds the M5StickS3 firmware in GitHub Actions and publishes a downloadable artifact.
+Released M5StickS3 firmware is published as GitHub Release assets.
 
 1. Open the repository on GitHub.
-2. Select the `Actions` tab.
-3. Open the latest successful `ESP32 Firmware` workflow run.
-4. Download the `aqualife-m5sticks3-firmware-<commit>` artifact.
+2. Select the `Releases` page.
+3. Open the latest release, such as `v1.0.0`.
+4. Download the `aqualife-m5sticks3-<version>-...` assets.
 
-The artifact contains:
+Each release contains:
 
-- `firmware.bin`
-- `firmware.elf`
-- `bootloader.bin`
-- `partitions.bin`
-- `build_info.h`
+- `aqualife-m5sticks3-<version>-firmware.bin`
+- `aqualife-m5sticks3-<version>-firmware.elf`
+- `aqualife-m5sticks3-<version>-bootloader.bin`
+- `aqualife-m5sticks3-<version>-partitions.bin`
+- `aqualife-m5sticks3-<version>-build_info.h`
+- `SHA256SUMS.txt`
 
 Use PlatformIO or another ESP32 flashing tool to install the downloaded binaries.
 
@@ -78,7 +79,7 @@ m5sticks3 > Custom > Build Assets
 
 `Build` and `Upload` also run asset conversion automatically before compiling/uploading.
 
-GitHub Actions also runs the firmware build automatically and uploads the firmware binaries as workflow artifacts.
+GitHub Releases contain the published firmware binaries. Creating a `v*` tag, such as `v1.0.0`, runs the release workflow and uploads the firmware assets to that release.
 
 ## Build firmware
 

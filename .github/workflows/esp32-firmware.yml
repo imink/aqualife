@@ -2,19 +2,30 @@ name: ESP32 Firmware
 
 on:
   push:
-    branches:
-      - main
-  pull_request:
+    tags:
+      - "v*"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build and publish, such as v1.0.0"
+        required: true
+        default: "v1.0.0"
+
+permissions:
+  contents: write
 
 jobs:
-  build:
-    name: Build M5StickS3 firmware
+  release:
+    name: Build and release M5StickS3 firmware
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -36,15 +47,21 @@ jobs:
       - name: Build firmware
         run: pio run -d esp32
 
-      - name: Upload firmware artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: aqualife-m5sticks3-firmware-${{ github.sha }}
-          if-no-files-found: error
-          retention-days: 30
-          path: |
-            esp32/.pio/build/m5sticks3/firmware.bin
-            esp32/.pio/build/m5sticks3/firmware.elf
-            esp32/.pio/build/m5sticks3/bootloader.bin
-            esp32/.pio/build/m5sticks3/partitions.bin
-            esp32/include/build_info.h
+      - name: Package release assets
+        run: |
+          mkdir -p esp32/release
+          cp esp32/.pio/build/m5sticks3/firmware.bin esp32/release/aqualife-m5sticks3-${RELEASE_TAG}-firmware.bin
+          cp esp32/.pio/build/m5sticks3/firmware.elf esp32/release/aqualife-m5sticks3-${RELEASE_TAG}-firmware.elf
+          cp esp32/.pio/build/m5sticks3/bootloader.bin esp32/release/aqualife-m5sticks3-${RELEASE_TAG}-bootloader.bin
+          cp esp32/.pio/build/m5sticks3/partitions.bin esp32/release/aqualife-m5sticks3-${RELEASE_TAG}-partitions.bin
+          cp esp32/include/build_info.h esp32/release/aqualife-m5sticks3-${RELEASE_TAG}-build_info.h
+          (cd esp32/release && shasum -a 256 * > SHA256SUMS.txt)
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${RELEASE_TAG}" esp32/release/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "AquaLife ${RELEASE_TAG}" \
+            --notes "AquaLife M5StickS3 firmware release ${RELEASE_TAG}. Download the firmware, bootloader, partitions, build info, and checksums from the assets below."

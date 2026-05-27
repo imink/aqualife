@@ -23,22 +23,23 @@
 
 如果刷入后端口发生变化，请拔下并重新连接设备，然后再次运行 `Upload and Monitor`。
 
-## 下载固件产物
+## 下载固件 Release
 
-每次 push 到 `main` 都会在 GitHub Actions 中构建 M5StickS3 固件，并发布可下载的 artifact。
+发布版 M5StickS3 固件会作为 GitHub Release assets 发布。
 
 1. 在 GitHub 上打开这个仓库。
-2. 选择 `Actions` 标签页。
-3. 打开最新成功的 `ESP32 Firmware` workflow run。
-4. 下载 `aqualife-m5sticks3-firmware-<commit>` artifact。
+2. 打开 `Releases` 页面。
+3. 打开最新 release，例如 `v1.0.0`。
+4. 下载 `aqualife-m5sticks3-<version>-...` assets。
 
-artifact 包含：
+每个 release 包含：
 
-- `firmware.bin`
-- `firmware.elf`
-- `bootloader.bin`
-- `partitions.bin`
-- `build_info.h`
+- `aqualife-m5sticks3-<version>-firmware.bin`
+- `aqualife-m5sticks3-<version>-firmware.elf`
+- `aqualife-m5sticks3-<version>-bootloader.bin`
+- `aqualife-m5sticks3-<version>-partitions.bin`
+- `aqualife-m5sticks3-<version>-build_info.h`
+- `SHA256SUMS.txt`
 
 可以使用 PlatformIO 或其他 ESP32 刷写工具安装下载到的二进制文件。
 
@@ -78,7 +79,7 @@ m5sticks3 > Custom > Build Assets
 
 `Build` 和 `Upload` 在编译或上传前也会自动运行资源转换。
 
-GitHub Actions 也会自动运行固件构建，并把固件二进制文件上传为 workflow artifacts。
+GitHub Releases 包含正式发布的固件二进制文件。创建 `v*` 标签（例如 `v1.0.0`）会运行 release workflow，并把固件 assets 上传到对应 release。
 
 ## 构建固件
 
