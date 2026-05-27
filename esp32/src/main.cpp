@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <M5Unified.h>
+#include <Preferences.h>
 #include <WiFi.h>
 #include "sprites.h"
 
@@ -10,13 +11,17 @@ constexpr int IDLE_FPS = 12;
 constexpr int ACTIVE_FRAME_TIME_MS = 1000 / ACTIVE_FPS;
 constexpr int IDLE_FRAME_TIME_MS = 1000 / IDLE_FPS;
 constexpr uint32_t ACTIVE_DISPLAY_MS = 8000;
+constexpr uint32_t BATTERY_READ_MS = 60000;
 constexpr uint32_t IMU_SAMPLE_MS = 150;
 constexpr uint32_t SHAKE_SCARE_MS = 300;
+constexpr uint32_t PLANT_FRAME_TIME_MS = 800;
 constexpr float SHAKE_THRESHOLD = 2.8f;
 constexpr uint8_t ACTIVE_BRIGHTNESS = 220;
 constexpr uint8_t IDLE_BRIGHTNESS = 3;
 constexpr bool LOGS_ENABLED = true;
 constexpr bool IMU_DEBUG_ENABLED = false;
+constexpr bool PERSISTENCE_ENABLED = true;
+constexpr uint32_t AQUARIUM_STATE_VERSION = 1;
 
 constexpr int AQUARIUM_TOP = 12;
 constexpr int AQUARIUM_BOTTOM = DISPLAY_HEIGHT - 20;
@@ -68,9 +73,12 @@ struct Food {
 };
 
 struct Plant {
+  const SpriteSheet* sheet;
   int x;
   int y;
   float offset;
+  uint8_t frameOffset;
+  uint16_t drawWidth;
   int height;
 };
 
@@ -85,6 +93,7 @@ Bubble bubbles[20];
 Food food[20];
 Plant plants[5];
 M5Canvas framebuffer(&M5.Display);
+Preferences preferences;
 
 uint32_t lastFrame = 0;
 uint32_t worldTime = 0;
@@ -133,6 +142,74 @@ float randFloat(float min, float max) {
       Serial.printf(__VA_ARGS__); \
     } \
   } while (false)
+
+float clampPercent(float value) {
+  if (value < 0.0f) {
+    return 0.0f;
+  }
+  if (value > 100.0f) {
+    return 100.0f;
+  }
+  return value;
+}
+
+void loadAquariumState() {
+  if (!PERSISTENCE_ENABLED) {
+    return;
+  }
+
+  if (!preferences.begin("aqualife", true)) {
+    LOG_PRINTLN("NVS: failed to open aquarium state");
+    return;
+  }
+
+  const uint32_t version = preferences.getUInt("version", 0);
+  if (version == AQUARIUM_STATE_VERSION) {
+    for (int i = 0; i < FISH_COUNT; i++) {
+      char key[8];
+
+      snprintf(key, sizeof(key), "hun%d", i);
+      fish[i].hunger = clampPercent(preferences.getFloat(key, fish[i].hunger));
+
+      snprintf(key, sizeof(key), "hap%d", i);
+      fish[i].happiness = clampPercent(preferences.getFloat(key, fish[i].happiness));
+    }
+
+    LOG_PRINTF("NVS: aquarium state loaded, last event=%s\n", preferences.getString("event", "none").c_str());
+  } else {
+    LOG_PRINTF("NVS: no compatible aquarium state, version=%lu\n", static_cast<unsigned long>(version));
+  }
+
+  preferences.end();
+}
+
+void saveAquariumState(const char* eventName) {
+  if (!PERSISTENCE_ENABLED) {
+    return;
+  }
+
+  if (!preferences.begin("aqualife", false)) {
+    LOG_PRINTLN("NVS: failed to save aquarium state");
+    return;
+  }
+
+  preferences.putUInt("version", AQUARIUM_STATE_VERSION);
+  preferences.putString("event", eventName);
+  preferences.putULong("saved_ms", millis());
+
+  for (int i = 0; i < FISH_COUNT; i++) {
+    char key[8];
+
+    snprintf(key, sizeof(key), "hun%d", i);
+    preferences.putFloat(key, clampPercent(fish[i].hunger));
+
+    snprintf(key, sizeof(key), "hap%d", i);
+    preferences.putFloat(key, clampPercent(fish[i].happiness));
+  }
+
+  preferences.end();
+  LOG_PRINTF("NVS: aquarium state saved, event=%s\n", eventName);
+}
 
 bool isActiveDisplay(uint32_t now) {
   return now - lastInteractionTime < ACTIVE_DISPLAY_MS;
@@ -211,7 +288,7 @@ void drawPixelText(const char* text, int x, int y, uint16_t color) {
 
 void updateBatteryStatus() {
   const uint32_t now = millis();
-  if (now - lastBatteryRead < 1000 && batteryLevel >= 0) {
+  if (now - lastBatteryRead < BATTERY_READ_MS && batteryLevel >= 0) {
     return;
   }
 
@@ -268,6 +345,7 @@ void spawnFood() {
         }
       }
       LOG_PRINTLN("BTN_A: Feed");
+      saveAquariumState("feed");
       return;
     }
   }
@@ -312,6 +390,7 @@ void seekFood(Fish& f) {
     f.happiness = min(100.0f, f.happiness + 10.0f);
     f.vx *= 0.4f;
     f.vy *= 0.4f;
+    saveAquariumState("eat");
     return;
   }
 
@@ -508,6 +587,7 @@ void updateControls() {
     for (auto& f : fish) {
       if (f.visible && f.state == Idle) {
         f.state = Play;
+        saveAquariumState("play");
         break;
       }
     }
@@ -548,6 +628,7 @@ void updateControls() {
         LOG_PRINTF("IMU shake duration accepted: %lu ms\n", static_cast<unsigned long>(shakeDuration));
         markInteraction();
         scareAllFish();
+        saveAquariumState("shake");
       }
     }
     shakeStartedAt = 0;
@@ -576,15 +657,9 @@ void renderWorld() {
   framebuffer.fillRect(0, AQUARIUM_BOTTOM - 3, DISPLAY_WIDTH, 6, rgb(136, 102, 34));
 
   for (const auto& plant : plants) {
-    const float sway = sinf(worldTime * 0.0015f + plant.offset) * 6.0f;
-    const float tipX = plant.x + sway;
-    for (int i = 0; i < plant.height; i += 3) {
-      const float t = static_cast<float>(i) / plant.height;
-      const float bend = t * t;
-      const int px = roundf(plant.x + (tipX - plant.x) * bend);
-      const int py = plant.y - i;
-      framebuffer.fillRect(px, py, 2, 3, rgb(0, 80 + static_cast<uint8_t>(t * 70), 0));
-    }
+    const uint8_t frame = (worldTime / PLANT_FRAME_TIME_MS + plant.frameOffset) % plant.sheet->frames;
+    const int x = roundf(plant.x + sinf(worldTime * 0.0015f + plant.offset) * 1.5f);
+    drawSpriteMasked(*plant.sheet, frame, x, plant.y - plant.height, plant.drawWidth, plant.height, false);
   }
 
   for (const auto& b : bubbles) {
@@ -621,11 +696,15 @@ void renderWorld() {
 
 void setupPlants() {
   for (int i = 0; i < 5; i++) {
+    const bool amazonSword = i % 2 == 0;
     plants[i] = {
-      15 + i * 55,
+      amazonSword ? &amazon_sword_sheet : &cabomba_sheet,
+      8 + i * 50,
       AQUARIUM_BOTTOM,
       randFloat(0, 6.28318f),
-      static_cast<int>(12 + (esp_random() % 16)),
+      static_cast<uint8_t>(i),
+      static_cast<uint16_t>(amazonSword ? 30 : 26),
+      static_cast<int>(28 + (esp_random() % 5)),
     };
   }
 }
@@ -658,6 +737,7 @@ void setup() {
   framebuffer.setTextFont(1);
 
   setupPlants();
+  loadAquariumState();
   lastFrame = millis();
   lastInteractionTime = lastFrame;
   lastImuRead = lastFrame;

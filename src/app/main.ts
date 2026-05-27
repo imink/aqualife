@@ -17,6 +17,7 @@ import { createFish } from '../core/Fish';
 const FPS = 25;
 const FRAME_TIME = 1000 / FPS;
 const MAX_FOOD = 50;
+const PLANT_FRAME_TIME = 800;
 
 export class App {
   private display!: DisplaySimulator;
@@ -137,6 +138,15 @@ export class App {
       frameCount: 4,
     });
     this.log('Sprite loaded: hammerhead (4 frames, 32x32)');
+    await this.display.loadSpriteSheet('amazon_sword', `${assetBase}assets/amazon_sword_sprite_sheet.png`, 32, 32, {
+      frameCount: 4,
+      removeBackground: true,
+    });
+    this.log('Sprite loaded: amazon_sword (4 frames, 32x32)');
+    await this.display.loadSpriteSheet('cabomba', `${assetBase}assets/cabomba_sprite_sheet.png`, 32, 32, {
+      frameCount: 4,
+    });
+    this.log('Sprite loaded: cabomba (4 frames, 32x32)');
     this.log('---');
     this.log('Ready. Use buttons or keyboard to interact.');
 
@@ -261,18 +271,15 @@ export class App {
 
     // Draw plants
     for (const plant of this.world.plants) {
-      // Keep the plant root fixed while the tip visibly sways in pixel space.
-      const sway = Math.sin(this.world.time * 0.0015 + plant.offset) * 6;
-      const tipX = plant.x + sway;
-      // Draw plant as vertical segments; round positions so the LCD-scale motion is visible.
-      for (let i = 0; i < plant.height; i += 3) {
-        const t = i / plant.height;
-        const bend = t * t;
-        const px = Math.round(plant.x + (tipX - plant.x) * bend);
-        const py = plant.y - i;
-        const green = 0x005500 + Math.floor(t * 0x44) * 0x100;
-        display.drawRect(px, py, 2, 3, green);
-      }
+      const frame = (Math.floor(this.world.time / PLANT_FRAME_TIME + plant.frameOffset) % 4);
+      this.display.drawSpriteFrame(
+        plant.species,
+        frame,
+        Math.round(plant.x + Math.sin(this.world.time * 0.0015 + plant.offset) * 1.5),
+        Math.round(plant.y - plant.height),
+        plant.width,
+        plant.height,
+      );
     }
 
     // Draw bubbles

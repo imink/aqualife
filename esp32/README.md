@@ -61,6 +61,8 @@ The converter currently includes:
 - `public/assets/clownfish_sprite_sheet.png`
 - `public/assets/whale_sheet.png`
 - `public/assets/hammerhead_shark_sprite.png`
+- `public/assets/amazon_sword_sprite_sheet.png`
+- `public/assets/cabomba_sprite_sheet.png`
 
 ## Runtime behavior
 

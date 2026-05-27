@@ -23,10 +23,13 @@ export interface FoodParticle {
 }
 
 export interface Plant {
+  species: 'amazon_sword' | 'cabomba';
   x: number;
   y: number;
   offset: number;
+  width: number;
   height: number;
+  frameOffset: number;
 }
 
 export interface World {
@@ -55,11 +58,15 @@ export function createWorld(): World {
 
   // Add plants
   for (let i = 0; i < 5; i++) {
+    const species = i % 2 === 0 ? 'amazon_sword' : 'cabomba';
     world.plants.push({
-      x: 15 + i * 55,
+      species,
+      x: 8 + i * 50,
       y: AQUARIUM_BOTTOM,
       offset: Math.random() * Math.PI * 2,
-      height: 12 + Math.random() * 16,
+      width: species === 'amazon_sword' ? 30 : 26,
+      height: 28 + Math.random() * 5,
+      frameOffset: i,
     });
   }
 

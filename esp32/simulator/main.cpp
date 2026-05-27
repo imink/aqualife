@@ -35,6 +35,7 @@ constexpr int kIdleFps = 12;
 constexpr int kActiveFrameTimeMs = 1000 / kActiveFps;
 constexpr int kIdleFrameTimeMs = 1000 / kIdleFps;
 constexpr uint32_t kActiveDisplayMs = 8000;
+constexpr uint32_t kPlantFrameTimeMs = 800;
 constexpr uint8_t kActiveBrightness = 220;
 constexpr uint8_t kIdleBrightness = 3;
 constexpr int kAquariumTop = 12;
@@ -87,9 +88,12 @@ struct Food {
 };
 
 struct Plant {
+  const SpriteSheet* sheet;
   int x;
   int y;
   float offset;
+  uint8_t frameOffset;
+  uint16_t drawWidth;
   int height;
 };
 
@@ -232,15 +236,9 @@ class Simulator {
     framebuffer.fillRect(0, kAquariumBottom - 3, kDisplayWidth, 6, rgb(136, 102, 34));
 
     for (const auto& plant : plants_) {
-      const float sway = std::sin(worldTime_ * 0.0015f + plant.offset) * 6.0f;
-      const float tipX = plant.x + sway;
-      for (int i = 0; i < plant.height; i += 3) {
-        const float t = static_cast<float>(i) / plant.height;
-        const float bend = t * t;
-        const int px = std::lround(plant.x + (tipX - plant.x) * bend);
-        const int py = plant.y - i;
-        framebuffer.fillRect(px, py, 2, 3, rgb(0, 80 + static_cast<uint8_t>(t * 70), 0));
-      }
+      const uint8_t frame = (worldTime_ / kPlantFrameTimeMs + plant.frameOffset) % plant.sheet->frames;
+      const int x = std::lround(plant.x + std::sin(worldTime_ * 0.0015f + plant.offset) * 1.5f);
+      drawSpriteMasked(framebuffer, *plant.sheet, frame, x, plant.y - plant.height, plant.drawWidth, plant.height, false);
     }
 
     for (const auto& bubble : bubbles_) {
@@ -644,7 +642,16 @@ class Simulator {
 
   void setupPlants() {
     for (int i = 0; i < 5; ++i) {
-      plants_[i] = {15 + i * 55, kAquariumBottom, randomFloat(0, 6.28318f), static_cast<int>(12 + randomInt(16))};
+      const bool amazonSword = i % 2 == 0;
+      plants_[i] = {
+        amazonSword ? &amazon_sword_sheet : &cabomba_sheet,
+        8 + i * 50,
+        kAquariumBottom,
+        randomFloat(0, 6.28318f),
+        static_cast<uint8_t>(i),
+        static_cast<uint16_t>(amazonSword ? 30 : 26),
+        static_cast<int>(28 + randomInt(5)),
+      };
     }
   }
 

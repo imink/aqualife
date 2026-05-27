@@ -28,6 +28,21 @@ const sprites = [
     frameHeight: 32,
     frames: 4,
   },
+  {
+    id: 'amazon_sword',
+    path: resolve(root, 'public/assets/amazon_sword_sprite_sheet.png'),
+    frameWidth: 32,
+    frameHeight: 32,
+    frames: 4,
+    removeBackground: true,
+  },
+  {
+    id: 'cabomba',
+    path: resolve(root, 'public/assets/cabomba_sprite_sheet.png'),
+    frameWidth: 32,
+    frameHeight: 32,
+    frames: 4,
+  },
 ];
 
 function rgb888To565(r, g, b) {
@@ -47,6 +62,11 @@ function formatArray(values, radix = 16) {
     );
   }
   return lines.join(',\n');
+}
+
+function isCheckeredBackground(r, g, b) {
+  const isNeutral = Math.abs(r - g) < 20 && Math.abs(g - b) < 20;
+  return isNeutral && r > 150;
 }
 
 async function convertSprite(sprite) {
@@ -75,7 +95,7 @@ async function convertSprite(sprite) {
       const b = imageData.data[index + 2];
       const a = imageData.data[index + 3];
       pixels.push(rgb888To565(r, g, b));
-      alpha.push(a > 16 ? 1 : 0);
+      alpha.push(a > 16 && !(sprite.removeBackground && isCheckeredBackground(r, g, b)) ? 1 : 0);
     }
   }
 
