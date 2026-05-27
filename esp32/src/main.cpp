@@ -2,7 +2,22 @@
 #include <M5Unified.h>
 #include <Preferences.h>
 #include <WiFi.h>
+#if __has_include("build_info.h")
+#include "build_info.h"
+#endif
 #include "sprites.h"
+
+#ifndef AQUALIFE_VERSION
+#define AQUALIFE_VERSION "dev"
+#endif
+
+#ifndef AQUALIFE_GIT_SHA
+#define AQUALIFE_GIT_SHA "unknown"
+#endif
+
+#ifndef AQUALIFE_BUILD_TIME
+#define AQUALIFE_BUILD_TIME "unknown"
+#endif
 
 constexpr int DISPLAY_WIDTH = 240;
 constexpr int DISPLAY_HEIGHT = 135;
@@ -742,7 +757,8 @@ void setup() {
   lastInteractionTime = lastFrame;
   lastImuRead = lastFrame;
 
-  LOG_PRINTLN("AquaLife ESP32 firmware");
+  LOG_PRINTF("AquaLife ESP32 firmware v%s (%s)\n", AQUALIFE_VERSION, AQUALIFE_GIT_SHA);
+  LOG_PRINTF("Build time: %s\n", AQUALIFE_BUILD_TIME);
   LOG_PRINTLN("Display: 240x135 landscape");
   LOG_PRINTLN("FPS: 25 active / 12 idle");
 }

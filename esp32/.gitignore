@@ -6,4 +6,5 @@
 .vscode/ipch
 __pycache__/
 *.pyc
+include/build_info.h
 simulator/build/
