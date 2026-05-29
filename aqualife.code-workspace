@@ -1,0 +1,20 @@
+{
+  "folders": [
+    {
+      "name": "aqualife",
+      "path": "."
+    },
+    {
+      "name": "esp32",
+      "path": "esp32"
+    }
+  ],
+  "extensions": {
+    "recommendations": [
+      "platformio.platformio-ide"
+    ],
+    "unwantedRecommendations": [
+      "ms-vscode.cpptools-extension-pack"
+    ]
+  }
+}

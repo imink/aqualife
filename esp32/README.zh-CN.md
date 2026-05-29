@@ -10,6 +10,14 @@
 - PlatformIO
 - USB 数据线
 
+## VS Code 工作区
+
+开发完整项目时，请在 VS Code 中打开 [../aqualife.code-workspace](../aqualife.code-workspace)。
+
+这个 workspace 会把仓库根目录和 [esp32](.) 作为两个独立 folder 加入。这样既能保留 Web app，又能让 PlatformIO 把 [platformio.ini](platformio.ini) 识别为顶层 workspace 项目。
+
+如果只打开仓库根目录，PlatformIO 可能不会自动识别嵌套的 ESP32 项目。
+
 ## 安装固件
 
 以下步骤面向想把 AquaLife 安装到 M5StickS3 上的玩家。
@@ -46,7 +54,7 @@
 ## 游玩
 
 - 按钮 A：喂鱼。
-- 按钮 B：和鱼互动玩耍。
+- 按钮 B：切换到下一个 app 页面。
 - 短暂摇晃设备：吓到鱼；鱼会隐藏几秒钟，然后回来。
 - 几秒钟没有操作后，屏幕会变暗以节省电量。
 
@@ -126,7 +134,7 @@ npm run esp32:monitor
 - 渲染使用 16 位离屏 framebuffer（`M5Canvas`），并把完整帧推送到 LCD，以避免闪烁
 - 动画：4 帧 sprite sheet
 - 按钮 A：喂鱼
-- 按钮 B：玩耍
+- 按钮 B：切换到下一个 app 页面
 - 摇晃：鱼会快速游走、隐藏，然后陆续回来
 - 状态持久化：关键事件发生时，鱼的饥饿度和快乐度会保存到 NVS
 - 渲染：RGB565

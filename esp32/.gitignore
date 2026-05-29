@@ -7,4 +7,5 @@
 __pycache__/
 *.pyc
 include/build_info.h
+src/wifi_secrets.h
 simulator/build/

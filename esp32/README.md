@@ -10,6 +10,14 @@ For Chinese documentation, see [README.zh-CN.md](README.zh-CN.md).
 - PlatformIO
 - USB cable
 
+## VS Code workspace
+
+Open [../aqualife.code-workspace](../aqualife.code-workspace) in VS Code when developing the full project.
+
+The workspace includes both the repository root and [esp32](.) as separate folders. This lets the web app stay available while PlatformIO detects [platformio.ini](platformio.ini) as a top-level workspace project.
+
+If you open only the repository root folder, PlatformIO may not automatically detect the nested ESP32 project.
+
 ## Install firmware
 
 These steps are for players who want to install AquaLife on a M5StickS3.
@@ -46,7 +54,7 @@ Use PlatformIO or another ESP32 flashing tool to install the downloaded binaries
 ## Play
 
 - Button A: feed the fish.
-- Button B: play with the fish.
+- Button B: switch to the next app screen.
 - Shake the device briefly: scare the fish; they hide for a few seconds, then return.
 - After several seconds without interaction, the display dims to save power.
 
@@ -126,7 +134,7 @@ The converter currently includes:
 - Rendering uses a 16-bit offscreen framebuffer (`M5Canvas`) and pushes one complete frame to the LCD to avoid flicker
 - Animation: 4-frame sprite sheets
 - Button A: feed
-- Button B: play
+- Button B: switch to the next app screen
 - Shake: fish dart away, hide, then return one by one
 - State persistence: fish hunger and happiness are saved to NVS on key events
 - Rendering: RGB565

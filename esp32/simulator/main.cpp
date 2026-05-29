@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <cstring>
 #include <random>
 #include <string>
@@ -42,6 +43,33 @@ constexpr int kAquariumTop = 12;
 constexpr int kAquariumBottom = kDisplayHeight - 20;
 constexpr int kAquariumLeft = 2;
 constexpr int kAquariumRight = kDisplayWidth - 2;
+constexpr uint32_t kFocusBlockMs = 25UL * 60UL * 1000UL;
+constexpr uint32_t kRelaxBlockMs = 5UL * 60UL * 1000UL;
+constexpr uint32_t kDoubleClickMs = 350;
+constexpr uint8_t kMatrixColumns = 40;
+constexpr uint8_t kMatrixRows = 10;
+constexpr uint8_t kMatrixCellWidth = kDisplayWidth / kMatrixColumns;
+constexpr uint8_t kMatrixCellHeight = 8;
+constexpr uint8_t kMatrixTop = 34;
+constexpr uint8_t kTimeMatrixColumns = 39;
+constexpr uint8_t kTimeMatrixRows = 7;
+
+enum FirmwareApp : uint8_t {
+  AquariumApp,
+  VfdTimeApp,
+  FishStatusApp,
+  DeviceInfoApp,
+};
+
+constexpr uint8_t kFirmwareAppCount = 4;
+
+enum PomodoroMode : uint8_t {
+  PomodoroIdle,
+  PomodoroSelecting,
+  PomodoroFocus,
+  PomodoroRelax,
+  PomodoroComplete,
+};
 
 enum FishState : uint8_t {
   Idle,
@@ -159,14 +187,42 @@ class Simulator {
     spawnFood();
   }
 
-  void play(uint32_t now) {
+  void switchToNextApp(uint32_t now) {
     markInteraction(now);
-    std::puts("B: Play");
-    for (auto& fish : fish_) {
-      if (fish.visible && fish.state == Idle) {
-        fish.state = Play;
-        break;
-      }
+    currentApp_ = static_cast<FirmwareApp>((static_cast<uint8_t>(currentApp_) + 1) % kFirmwareAppCount);
+    std::printf("B: Switch app -> %s\n", currentAppName());
+  }
+
+  void handleA(uint32_t now) {
+    markInteraction(now);
+    if (currentApp_ != VfdTimeApp) {
+      feed(now);
+      return;
+    }
+
+    if (pendingVfdSingleClick_ && now - pendingVfdSingleClickAt_ <= kDoubleClickMs) {
+      pendingVfdSingleClick_ = false;
+      resetPomodoro();
+      return;
+    }
+
+    pendingVfdSingleClick_ = true;
+    pendingVfdSingleClickAt_ = now;
+  }
+
+  void tiltTimerSmaller(uint32_t now) {
+    markInteraction(now);
+    simulatedTiltTomatoes_ = std::max<uint8_t>(1, simulatedTiltTomatoes_ - 1);
+    if (pomodoroMode_ == PomodoroSelecting) {
+      selectedTomatoes_ = simulatedTiltTomatoes_;
+    }
+  }
+
+  void tiltTimerLarger(uint32_t now) {
+    markInteraction(now);
+    simulatedTiltTomatoes_ = std::min<uint8_t>(3, simulatedTiltTomatoes_ + 1);
+    if (pomodoroMode_ == PomodoroSelecting) {
+      selectedTomatoes_ = simulatedTiltTomatoes_;
     }
   }
 
@@ -195,6 +251,20 @@ class Simulator {
 
   int currentFps(uint32_t now) const { return isActiveDisplay(now) ? kActiveFps : kIdleFps; }
 
+  const char* currentAppName() const {
+    switch (currentApp_) {
+      case AquariumApp:
+        return "AquaLife";
+      case VfdTimeApp:
+        return "VFD Time";
+      case FishStatusApp:
+        return "Fish Status";
+      case DeviceInfoApp:
+        return "Device Info";
+    }
+    return "Unknown";
+  }
+
   void updateBrightness(uint32_t now) {
     const bool active = isActiveDisplay(now);
     if (displayActive_ != active) {
@@ -216,7 +286,10 @@ class Simulator {
     }
   }
 
-  void update(uint16_t dt) {
+  void update(uint16_t dt, uint32_t now) {
+    updateVfdControls(now);
+    updatePomodoro(now);
+
     for (auto& fish : fish_) {
       updateFish(fish, dt);
     }
@@ -226,6 +299,24 @@ class Simulator {
   }
 
   void render(Framebuffer& framebuffer) {
+    switch (currentApp_) {
+      case AquariumApp:
+        renderAquarium(framebuffer);
+        break;
+      case VfdTimeApp:
+        renderVfdTime(framebuffer);
+        break;
+      case FishStatusApp:
+        renderFishStatus(framebuffer);
+        break;
+      case DeviceInfoApp:
+        renderDeviceInfo(framebuffer);
+        break;
+    }
+  }
+
+ private:
+  void renderAquarium(Framebuffer& framebuffer) {
     framebuffer.fillScreen(rgb(0, 8, 32));
 
     for (int y = 0; y < kDisplayHeight; y += 16) {
@@ -270,8 +361,6 @@ class Simulator {
     drawText(framebuffer, "AquaLife", 4, 3, rgb(210, 210, 210));
     drawBatteryStatus(framebuffer);
   }
-
- private:
   void markInteraction(uint32_t now) {
     lastInteractionTime_ = now;
     if (!displayActive_) {
@@ -418,6 +507,315 @@ class Simulator {
     char label[6];
     std::snprintf(label, sizeof(label), "%d%%", batteryLevel_);
     drawText(framebuffer, label, iconX - 29, iconY + 1, outlineColor);
+  }
+
+  void drawAppHeader(Framebuffer& framebuffer, const char* title) {
+    framebuffer.fillRect(0, 0, kDisplayWidth, 13, rgb(4, 18, 44));
+    drawText(framebuffer, title, 4, 3, rgb(230, 240, 255));
+
+    char indexText[8];
+    std::snprintf(indexText, sizeof(indexText), "%u/%u", static_cast<unsigned>(static_cast<uint8_t>(currentApp_) + 1),
+                  static_cast<unsigned>(kFirmwareAppCount));
+    drawText(framebuffer, indexText, kDisplayWidth - 27, 3, rgb(170, 190, 220));
+  }
+
+  void drawProgressBar(Framebuffer& framebuffer, int x, int y, int width, int height, float percent, uint16_t color) {
+    framebuffer.drawRect(x, y, width, height, rgb(72, 84, 108));
+    const int fillWidth = static_cast<int>((std::clamp(percent, 0.0f, 100.0f) / 100.0f) * (width - 2));
+    framebuffer.fillRect(x + 1, y + 1, fillWidth, height - 2, color);
+  }
+
+  void renderFishStatus(Framebuffer& framebuffer) {
+    framebuffer.fillScreen(rgb(8, 12, 24));
+    drawAppHeader(framebuffer, "Fish Status");
+
+    constexpr int rowTop = 22;
+    constexpr int rowHeight = 33;
+    constexpr int barX = 76;
+    constexpr int barWidth = 112;
+
+    for (int i = 0; i < static_cast<int>(fish_.size()); i++) {
+      const int y = rowTop + i * rowHeight;
+      framebuffer.fillRect(4, y - 3, kDisplayWidth - 8, rowHeight - 3, rgb(13, 25, 42));
+      drawText(framebuffer, fish_[i].name, 9, y, rgb(230, 240, 255));
+      drawText(framebuffer, "Hunger", 9, y + 11, rgb(160, 180, 205));
+      drawText(framebuffer, "Happy", 9, y + 21, rgb(160, 180, 205));
+      drawProgressBar(framebuffer, barX, y + 10, barWidth, 7, fish_[i].hunger, rgb(96, 220, 130));
+      drawProgressBar(framebuffer, barX, y + 20, barWidth, 7, fish_[i].happiness, rgb(255, 198, 82));
+    }
+
+    drawBatteryStatus(framebuffer);
+  }
+
+  void renderDeviceInfo(Framebuffer& framebuffer) {
+    framebuffer.fillScreen(rgb(14, 14, 18));
+    drawAppHeader(framebuffer, "Device Info");
+
+    char line[64];
+    drawText(framebuffer, "Version sim", 9, 24, rgb(230, 240, 255));
+    drawText(framebuffer, "Git desktop", 9, 37, rgb(180, 200, 225));
+    std::snprintf(line, sizeof(line), "Battery %d%%", batteryLevel_);
+    drawText(framebuffer, line, 9, 50, rgb(180, 200, 225));
+    drawText(framebuffer, "IMU keyboard", 9, 63, rgb(90, 255, 150));
+    std::snprintf(line, sizeof(line), "Uptime %lu s", static_cast<unsigned long>(SDL_GetTicks() / 1000));
+    drawText(framebuffer, line, 9, 76, rgb(180, 200, 225));
+    drawText(framebuffer, "B: next app", 9, kDisplayHeight - 15, rgb(130, 150, 180));
+    drawBatteryStatus(framebuffer);
+  }
+
+  void drawGlowText(Framebuffer& framebuffer, const char* text, int x, int y, uint16_t color) {
+    drawText(framebuffer, text, x - 1, y, rgb(3, 58, 56));
+    drawText(framebuffer, text, x + 1, y, rgb(3, 58, 56));
+    drawText(framebuffer, text, x, y - 1, rgb(3, 58, 56));
+    drawText(framebuffer, text, x, y + 1, rgb(3, 58, 56));
+    drawText(framebuffer, text, x, y, color);
+  }
+
+  void drawVfdPanel(Framebuffer& framebuffer) {
+    framebuffer.fillScreen(rgb(1, 8, 13));
+    framebuffer.drawRect(2, 2, kDisplayWidth - 4, kDisplayHeight - 4, rgb(8, 54, 62));
+    framebuffer.drawRect(4, 4, kDisplayWidth - 8, kDisplayHeight - 8, rgb(1, 22, 31));
+    for (int y = 10; y < kDisplayHeight - 8; y += 6) {
+      framebuffer.fillRect(6, y, kDisplayWidth - 12, 1, rgb(0, 18, 22));
+    }
+    framebuffer.fillRect(0, 0, kDisplayWidth, 7, rgb(0, 5, 9));
+    framebuffer.fillRect(0, kDisplayHeight - 7, kDisplayWidth, 7, rgb(0, 5, 9));
+  }
+
+  void drawMatrixDot(Framebuffer& framebuffer, uint8_t col, uint8_t row, bool active) {
+    const int x = col * kMatrixCellWidth + 1;
+    const int y = kMatrixTop + row * kMatrixCellHeight;
+    if (active) {
+      framebuffer.fillRect(x - 1, y - 1, 6, 6, rgb(0, 58, 52));
+      framebuffer.fillRect(x, y, 4, 4, rgb(94, 255, 224));
+    } else {
+      framebuffer.fillRect(x + 1, y + 1, 3, 3, rgb(0, 24, 24));
+    }
+  }
+
+  void drawMatrixBackground(Framebuffer& framebuffer) {
+    for (uint8_t row = 0; row < kMatrixRows; row++) {
+      for (uint8_t col = 0; col < kMatrixColumns; col++) {
+        drawMatrixDot(framebuffer, col, row, false);
+      }
+    }
+  }
+
+  void drawMatrixDigit(Framebuffer& framebuffer, uint8_t digit, uint8_t gridCol, uint8_t gridRow) {
+    constexpr uint8_t patterns[10][7] = {
+      {0b11111, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b11111},
+      {0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110},
+      {0b11110, 0b00001, 0b00001, 0b11110, 0b10000, 0b10000, 0b11111},
+      {0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110},
+      {0b10010, 0b10010, 0b10010, 0b11111, 0b00010, 0b00010, 0b00010},
+      {0b11111, 0b10000, 0b10000, 0b11110, 0b00001, 0b00001, 0b11110},
+      {0b01111, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110},
+      {0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000},
+      {0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110},
+      {0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b11110},
+    };
+
+    for (uint8_t row = 0; row < 7; row++) {
+      for (uint8_t col = 0; col < 5; col++) {
+        drawMatrixDot(framebuffer, gridCol + col, gridRow + row,
+                      (patterns[digit][row] & (1 << (4 - col))) != 0);
+      }
+    }
+  }
+
+  void drawMatrixColon(Framebuffer& framebuffer, uint8_t gridCol, uint8_t gridRow) {
+    for (uint8_t row = 0; row < 7; row++) {
+      drawMatrixDot(framebuffer, gridCol, gridRow + row, row == 2 || row == 4);
+    }
+  }
+
+  void drawLargeHms(Framebuffer& framebuffer, uint8_t hours, uint8_t minutes, uint8_t seconds) {
+    constexpr uint8_t digitWidth = 5;
+    constexpr uint8_t colonWidth = 1;
+    constexpr uint8_t gap = 1;
+    constexpr uint8_t startCol = (kMatrixColumns - kTimeMatrixColumns) / 2;
+    constexpr uint8_t startRow = (kMatrixRows - kTimeMatrixRows) / 2;
+    const uint8_t values[] = {static_cast<uint8_t>(hours / 10), static_cast<uint8_t>(hours % 10),
+                              static_cast<uint8_t>(minutes / 10), static_cast<uint8_t>(minutes % 10),
+                              static_cast<uint8_t>(seconds / 10), static_cast<uint8_t>(seconds % 10)};
+
+    drawMatrixBackground(framebuffer);
+
+    uint8_t col = startCol;
+    drawMatrixDigit(framebuffer, values[0], col, startRow);
+    col += digitWidth + gap;
+    drawMatrixDigit(framebuffer, values[1], col, startRow);
+    col += digitWidth + gap;
+    drawMatrixColon(framebuffer, col, startRow);
+    col += colonWidth + gap;
+    drawMatrixDigit(framebuffer, values[2], col, startRow);
+    col += digitWidth + gap;
+    drawMatrixDigit(framebuffer, values[3], col, startRow);
+    col += digitWidth + gap;
+    drawMatrixColon(framebuffer, col, startRow);
+    col += colonWidth + gap;
+    drawMatrixDigit(framebuffer, values[4], col, startRow);
+    col += digitWidth + gap;
+    drawMatrixDigit(framebuffer, values[5], col, startRow);
+  }
+
+  uint32_t remainingPhaseMs(uint32_t now) const {
+    if (pomodoroMode_ != PomodoroFocus && pomodoroMode_ != PomodoroRelax) {
+      return 0;
+    }
+    const uint32_t elapsed = now - phaseStartedAt_;
+    return elapsed >= phaseDurationMs_ ? 0 : phaseDurationMs_ - elapsed;
+  }
+
+  void drawLargeDuration(Framebuffer& framebuffer, uint32_t milliseconds) {
+    const uint32_t totalSeconds = (milliseconds + 999) / 1000;
+    drawLargeHms(framebuffer, static_cast<uint8_t>((totalSeconds / 3600) % 100),
+                 static_cast<uint8_t>((totalSeconds / 60) % 60), static_cast<uint8_t>(totalSeconds % 60));
+  }
+
+  void drawTomatoSlots(Framebuffer& framebuffer) {
+    const int centers[] = {48, 120, 192};
+    const char* const labels[] = {"25", "50", "75"};
+    for (uint8_t i = 0; i < 3; i++) {
+      const bool selected = selectedTomatoes_ == i + 1;
+      framebuffer.fillRect(centers[i] - 22, 105, 44, 1, selected ? rgb(94, 255, 224) : rgb(2, 48, 48));
+      drawGlowText(framebuffer, labels[i], centers[i] - 8, 108, selected ? rgb(94, 255, 224) : rgb(39, 138, 128));
+      drawGlowText(framebuffer, "MIN", centers[i] + 8, 108, rgb(39, 138, 128));
+      if (selected) {
+        framebuffer.fillRect(centers[i] - 5, 98, 11, 4, rgb(94, 255, 224));
+      }
+    }
+  }
+
+  const char* pomodoroLabel() const {
+    switch (pomodoroMode_) {
+      case PomodoroSelecting:
+        return "SELECT";
+      case PomodoroFocus:
+        return "FOCUS";
+      case PomodoroRelax:
+        return "RELAX";
+      case PomodoroComplete:
+        return "COMPLETE";
+      case PomodoroIdle:
+        break;
+    }
+    return "TIMER";
+  }
+
+  void renderVfdTime(Framebuffer& framebuffer) {
+    const uint32_t now = SDL_GetTicks();
+    drawVfdPanel(framebuffer);
+    drawGlowText(framebuffer, "STEREO", 10, 13, rgb(39, 138, 128));
+    drawGlowText(framebuffer, pomodoroLabel(), 65, 13, pomodoroMode_ == PomodoroIdle ? rgb(39, 138, 128) : rgb(94, 255, 224));
+    drawGlowText(framebuffer, "NTP LOCK", 119, 13, rgb(94, 255, 224));
+
+    if (pomodoroMode_ == PomodoroSelecting) {
+      drawLargeDuration(framebuffer, selectedTomatoes_ * kFocusBlockMs);
+      drawTomatoSlots(framebuffer);
+      char label[18];
+      std::snprintf(label, sizeof(label), "TILT %u MIN", static_cast<unsigned>(selectedTomatoes_ * 25));
+      drawGlowText(framebuffer, label, 10, 116, rgb(39, 138, 128));
+      drawGlowText(framebuffer, "A:START", kDisplayWidth - 56, 116, rgb(94, 255, 224));
+    } else if (pomodoroMode_ == PomodoroFocus || pomodoroMode_ == PomodoroRelax) {
+      drawLargeDuration(framebuffer, remainingPhaseMs(now));
+      char label[18];
+      std::snprintf(label, sizeof(label), "%u/%u TOMATO", static_cast<unsigned>(completedTomatoes_ + 1),
+                    static_cast<unsigned>(selectedTomatoes_));
+      drawGlowText(framebuffer, label, 10, 116, rgb(39, 138, 128));
+      drawGlowText(framebuffer, "AA:CLR", kDisplayWidth - 50, 116, rgb(39, 138, 128));
+    } else if (pomodoroMode_ == PomodoroComplete) {
+      drawLargeDuration(framebuffer, 0);
+      char label[18];
+      std::snprintf(label, sizeof(label), "%u DONE", static_cast<unsigned>(selectedTomatoes_));
+      drawGlowText(framebuffer, label, 10, 116, rgb(39, 138, 128));
+      drawGlowText(framebuffer, "AA:CLR", kDisplayWidth - 50, 116, rgb(39, 138, 128));
+    } else {
+      const std::time_t current = std::time(nullptr);
+      const std::tm* local = std::localtime(&current);
+      if (local != nullptr) {
+        drawLargeHms(framebuffer, static_cast<uint8_t>(local->tm_hour), static_cast<uint8_t>(local->tm_min),
+                     static_cast<uint8_t>(local->tm_sec));
+        char dateText[18];
+        std::strftime(dateText, sizeof(dateText), "%b %d %a", local);
+        drawGlowText(framebuffer, dateText, 10, 116, rgb(39, 138, 128));
+      }
+      drawGlowText(framebuffer, "A:SET", kDisplayWidth - 43, 116, rgb(39, 138, 128));
+    }
+
+    drawBatteryStatus(framebuffer);
+  }
+
+  void handleVfdSingleClick() {
+    if (pomodoroMode_ == PomodoroIdle || pomodoroMode_ == PomodoroComplete) {
+      selectedTomatoes_ = simulatedTiltTomatoes_;
+      pomodoroMode_ = PomodoroSelecting;
+      return;
+    }
+    if (pomodoroMode_ == PomodoroSelecting) {
+      completedTomatoes_ = 0;
+      startFocusPhase(SDL_GetTicks());
+    }
+  }
+
+  void updateVfdControls(uint32_t now) {
+    if (pendingVfdSingleClick_ && now - pendingVfdSingleClickAt_ > kDoubleClickMs) {
+      pendingVfdSingleClick_ = false;
+      handleVfdSingleClick();
+    }
+  }
+
+  void startFocusPhase(uint32_t now) {
+    pomodoroMode_ = PomodoroFocus;
+    phaseStartedAt_ = now;
+    phaseDurationMs_ = kFocusBlockMs;
+    std::printf("VFD tomato: focus %u/%u started\n", static_cast<unsigned>(completedTomatoes_ + 1),
+                static_cast<unsigned>(selectedTomatoes_));
+    std::puts("sound: start chime");
+  }
+
+  void startRelaxPhase(uint32_t now) {
+    pomodoroMode_ = PomodoroRelax;
+    phaseStartedAt_ = now;
+    phaseDurationMs_ = kRelaxBlockMs;
+    std::puts("VFD tomato: relax started");
+    std::puts("sound: relax chime");
+  }
+
+  void completePomodoro() {
+    pomodoroMode_ = PomodoroComplete;
+    phaseStartedAt_ = SDL_GetTicks();
+    phaseDurationMs_ = 0;
+    std::puts("VFD tomato: complete");
+    std::puts("sound: complete chime");
+  }
+
+  void resetPomodoro() {
+    pomodoroMode_ = PomodoroIdle;
+    selectedTomatoes_ = 1;
+    completedTomatoes_ = 0;
+    phaseStartedAt_ = 0;
+    phaseDurationMs_ = 0;
+    std::puts("VFD tomato: cleared");
+  }
+
+  void updatePomodoro(uint32_t now) {
+    if (pomodoroMode_ != PomodoroFocus && pomodoroMode_ != PomodoroRelax) {
+      return;
+    }
+    if (now - phaseStartedAt_ < phaseDurationMs_) {
+      return;
+    }
+    if (pomodoroMode_ == PomodoroFocus) {
+      completedTomatoes_++;
+      startRelaxPhase(now);
+      return;
+    }
+    if (completedTomatoes_ >= selectedTomatoes_) {
+      completePomodoro();
+    } else {
+      startFocusPhase(now);
+    }
   }
 
   void spawnFood() {
@@ -668,6 +1066,15 @@ class Simulator {
   uint8_t currentBrightness_ = kActiveBrightness;
   bool displayActive_ = true;
   bool charging_ = false;
+  FirmwareApp currentApp_ = AquariumApp;
+  PomodoroMode pomodoroMode_ = PomodoroIdle;
+  uint8_t simulatedTiltTomatoes_ = 1;
+  uint8_t selectedTomatoes_ = 1;
+  uint8_t completedTomatoes_ = 0;
+  uint32_t phaseStartedAt_ = 0;
+  uint32_t phaseDurationMs_ = 0;
+  bool pendingVfdSingleClick_ = false;
+  uint32_t pendingVfdSingleClickAt_ = 0;
 };
 
 uint32_t expand565(uint16_t color, uint8_t brightness) {
@@ -699,9 +1106,9 @@ void copyFramebufferToTexture(const Framebuffer& framebuffer, SDL_Texture* textu
 void updateWindowTitle(SDL_Window* window, const Simulator& simulator) {
   char title[128];
   const uint32_t now = SDL_GetTicks();
-  std::snprintf(title, sizeof(title), "AquaLife Simulator - Battery %d%%%s - %d FPS - Brightness %u",
-                simulator.batteryLevel(), simulator.charging() ? " charging" : "", simulator.currentFps(now),
-                simulator.brightness());
+  std::snprintf(title, sizeof(title), "AquaLife Simulator - %s - Battery %d%%%s - %d FPS - Brightness %u",
+                simulator.currentAppName(), simulator.batteryLevel(), simulator.charging() ? " charging" : "",
+                simulator.currentFps(now), simulator.brightness());
   SDL_SetWindowTitle(window, title);
 }
 
@@ -762,13 +1169,17 @@ int main() {
         if (key == SDLK_ESCAPE) {
           running = false;
         } else if (key == SDLK_a) {
-          simulator.feed(SDL_GetTicks());
+          simulator.handleA(SDL_GetTicks());
         } else if (key == SDLK_b) {
-          simulator.play(SDL_GetTicks());
+          simulator.switchToNextApp(SDL_GetTicks());
         } else if (key == SDLK_s) {
           simulator.shake(SDL_GetTicks());
         } else if (key == SDLK_c) {
           simulator.setCharging(!simulator.charging());
+        } else if (key == SDLK_LEFT) {
+          simulator.tiltTimerSmaller(SDL_GetTicks());
+        } else if (key == SDLK_RIGHT) {
+          simulator.tiltTimerLarger(SDL_GetTicks());
         } else if (key == SDLK_UP) {
           simulator.setBatteryLevel(simulator.batteryLevel() + 5);
         } else if (key == SDLK_DOWN) {
@@ -790,7 +1201,7 @@ int main() {
     const auto dt = static_cast<uint16_t>(now - lastFrame);
     lastFrame = now;
 
-    simulator.update(dt);
+    simulator.update(dt, now);
     simulator.render(framebuffer);
     copyFramebufferToTexture(framebuffer, texture, simulator.brightness());
     updateWindowTitle(window, simulator);

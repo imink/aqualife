@@ -13,8 +13,11 @@ cmake --build simulator/build
 
 ## Controls
 
-- `A`: feed
-- `B`: play
+- `B`: switch app (`AquaLife` / `VFD Time` / `Fish Status` / `Device Info`)
+- `A` on `AquaLife`: feed
+- `A` on `VFD Time`: single click opens the tomato time-slot selector; single click again starts it
+- Double-click `A` on `VFD Time`: clear the tomato timer and return to the real clock
+- `Left` / `Right`: mock IMU tilt for the VFD tomato selector, choosing smaller/larger timer slots
 - `S`: shake/ scare fish
 - `C`: toggle charging
 - `Up` / `Down`: change mocked battery level
